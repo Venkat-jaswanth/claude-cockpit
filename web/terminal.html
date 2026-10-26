@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Cockpit · session</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; background: #0f1115; }
+  .tbar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--sidebar); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); font-size: 13px; flex-wrap: wrap; }
+  .tbar .name { font-weight: 600; letter-spacing: -0.01em; }
+  #term { flex: 1; min-height: 0; padding: 6px; background: #0f1115; }
+  .overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.45); backdrop-filter: blur(6px); }
+  .overlay.show { display: flex; }
+  .overlay .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; max-width: 420px; box-shadow: var(--shadow); }
+  .overlay h3 { font-size: 15px; letter-spacing: 0; text-transform: none; color: var(--text); margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="tbar">
+  <a href="/" class="btn sm">← Dashboard</a>
+  <span class="name" id="tname">…</span>
+  <span class="badge" id="tseat">seat</span>
+  <span class="badge" id="tstatus">status</span>
+  <span class="muted" id="tcwd"></span>
+  <span style="flex:1"></span>
+  <button class="btn sm" id="btnTerminal">Open in Terminal app</button>
+  <select class="sel sm" id="handoffSeat"><option value="">Best seat</option></select>
+  <button class="btn sm" id="btnHandoff">Hand off</button>
+  <button class="btn sm danger" id="btnStop">Stop</button>
+</div>
+<div id="term"></div>
+<div class="overlay" id="overlay"><div class="box"><h3 id="ovTitle">Session ended</h3><p id="ovText" class="muted"></p><p><select class="sel sm" id="restoreSeat"><option value="">Best seat</option></select> <button class="btn sm primary" id="btnRestore">Resume here</button> <a class="btn sm" href="/">Dashboard</a></p></div></div>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script src="/terminal.js"></script>
+</body>
+</html>

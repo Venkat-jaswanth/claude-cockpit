@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Claude Cockpit</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="glyph">⇄</span><div><div class="brand-name">Claude Cockpit</div><div class="brand-sub" id="brandSub">connecting…</div></div></div>
+    <nav class="nav" id="nav">
+      <a href="#/overview" data-view="overview"><span class="ico">◉</span>Overview</a>
+      <a href="#/seats" data-view="seats"><span class="ico">◫</span>Seats<span class="count" id="cSeats"></span></a>
+      <a href="#/sessions" data-view="sessions"><span class="ico">▶</span>Sessions<span class="count" id="cSessions"></span></a>
+      <a href="#/library" data-view="library"><span class="ico">▦</span>Projects<span class="count" id="cLibrary"></span></a>
+      <a href="#/usage" data-view="usage"><span class="ico">▤</span>Usage</a>
+      <a href="#/activity" data-view="activity"><span class="ico">◷</span>Activity</a>
+      <div class="nav-gap"></div>
+      <a href="#/settings" data-view="settings"><span class="ico">⚙</span>Settings</a>
+      <a href="#/help" data-view="help"><span class="ico">?</span>Help</a>
+    </nav>
+    <div class="sidebar-foot" id="daemonLine">daemon…</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div><h1 id="viewTitle">Overview</h1><div class="topbar-sub" id="viewSub"></div></div>
+      <div class="topbar-actions">
+        <button class="btn" id="btnCheckAll" title="Opens Claude Code briefly on every idle seat, asks it for /usage, and closes it. No prompt is sent.">Check usage</button>
+        <button class="btn primary" id="btnNew">New session</button>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<div class="scrim" id="sheetScrim" hidden>
+  <form class="sheet" id="newSession">
+    <div class="sheet-head"><h2>New session</h2><button type="button" class="btn ghost" id="sheetClose" aria-label="Close">✕</button></div>
+    <label class="field"><span>Folder</span><input name="cwd" list="projects" placeholder="/Users/you/project" autocomplete="off" required><datalist id="projects"></datalist></label>
+    <div class="field-row">
+      <label class="field"><span>Seat</span><select name="seat" id="nsSeat"><option value="">Best seat</option></select></label>
+      <label class="field"><span>Name</span><input name="name" placeholder="optional"></label>
+    </div>
+    <label class="field"><span>Extra Claude Code flags</span><input name="extra" placeholder="--model opus" autocomplete="off"></label>
+    <div class="field-row">
+      <label class="field"><span>Start</span><select name="when" id="nsWhen"><option value="now">Now</option><option value="3600000">In 1 hour</option><option value="7200000">In 2 hours</option><option value="14400000">In 4 hours</option><option value="reset">At the freshest seat's next reset</option></select></label>
+      <label class="field"><span>Initial task <span class="muted">(optional — runs on start)</span></span><input name="prompt" placeholder="e.g. continue the refactor" autocomplete="off"></label>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn" id="nsBrowser">Open in browser</button>
+      <button type="submit" class="btn primary" id="nsSubmit">Open in Terminal</button>
+    </div>
+  </form>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/app.js"></script>
+</body>
+</html>
