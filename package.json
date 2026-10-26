@@ -1,0 +1,49 @@
+{
+  "name": "claude-cockpit",
+  "version": "0.5.0",
+  "description": "Run and manage several Claude Code accounts from one machine: per-account isolation, 5-hour usage visibility, a local dashboard, and opt-in session handoff.",
+  "type": "module",
+  "bin": {
+    "cockpit": "bin/cockpit.js"
+  },
+  "scripts": {
+    "daemon": "node src/daemon.js",
+    "test": "node test/e2e.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "cli",
+    "dashboard",
+    "usage",
+    "rate-limit",
+    "multi-account",
+    "session-manager",
+    "pty"
+  ],
+  "author": "Venkat Jaswanth",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Venkat-jaswanth/claude-cockpit.git"
+  },
+  "homepage": "https://github.com/Venkat-jaswanth/claude-cockpit#readme",
+  "bugs": {
+    "url": "https://github.com/Venkat-jaswanth/claude-cockpit/issues"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "web/"
+  ],
+  "dependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0",
+    "ws": "8.22.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

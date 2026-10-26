@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Runtime state — cockpit keeps everything in ~/.claude-cockpit, but never commit it
+# if it ever ends up inside the repo during local testing.
+.claude-cockpit/
+*.local
+test-tmp/
+cockpit-e2e-*/
+
+# Secrets / environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
