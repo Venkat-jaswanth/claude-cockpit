@@ -1,17 +1,20 @@
 <div align="center">
 
-# Claude Cockpit
+<img alt="Claude Cockpit" src="docs/hero.png" width="100%">
 
-### A local control room for Claude Code.
+<br>
 
-Run sessions in the background, attach to any of them from your browser or Terminal,
-search and organize everything you've ever run, and manage several accounts from one dashboard.
+[![Latest release](https://img.shields.io/github/v/release/Venkat-jaswanth/claude-cockpit?style=flat-square&labelColor=1b1b1f&color=3f3f46&label=release)](https://github.com/Venkat-jaswanth/claude-cockpit/releases)
+&nbsp;
+[![License: MIT](https://img.shields.io/badge/license-MIT-3f3f46?style=flat-square&labelColor=1b1b1f)](LICENSE)
+&nbsp;
+[![Node 20+](https://img.shields.io/badge/node-%E2%89%A520-3f3f46?style=flat-square&labelColor=1b1b1f)](package.json)
 
-[![release](https://img.shields.io/github/v/release/Venkat-jaswanth/claude-cockpit?color=1f6feb&label=release)](https://github.com/Venkat-jaswanth/claude-cockpit/releases)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)
-![platform](https://img.shields.io/badge/platform-macOS-lightgrey)
+<br>
 
+[Install](#install) &nbsp;·&nbsp; [Features](#features) &nbsp;·&nbsp; [Screenshots](#screenshots) &nbsp;·&nbsp; [Account&nbsp;sharing](#account-sharing-please-read)
+
+<br>
 <br>
 
 <picture>
@@ -246,3 +249,9 @@ npm test   # drives the real CLI, daemon, hooks, PTY sessions, WebSocket attach 
 ## License
 
 [MIT](LICENSE) © 2026 Venkat Jaswanth
+
+<br>
+
+<div align="center">
+<sub><b>Claude Cockpit</b> &nbsp;·&nbsp; <a href="CONTRIBUTING.md">Contributing</a> &nbsp;·&nbsp; <a href="SECURITY.md">Security</a> &nbsp;·&nbsp; <a href="https://github.com/Venkat-jaswanth/claude-cockpit/issues">Report an issue</a></sub>
+</div>
