@@ -1,5 +1,5 @@
 // Tiny HTTP client the CLI uses to talk to the local daemon's JSON API on 127.0.0.1.
-// Kept dependency-free on purpose — this is the only thing the `cockpit` command needs to
+// Kept dependency-free on purpose; this is the only thing the `cockpit` command needs to
 // reach the daemon.
 import http from 'node:http';
 

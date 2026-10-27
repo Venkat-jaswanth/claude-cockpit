@@ -58,7 +58,7 @@ export class SessionManager {
       ...(s.resume ? ['--resume', s.sessionId] : ['--session-id', s.sessionId]),
       ...(!s.resume && s.name ? ['-n', s.name] : []),
       ...(s.resume ? resumeSafeArgs(s.extra) : (s.extra || [])),
-      // A prompt passed as a positional runs automatically and keeps the TUI interactive — used by
+      // A prompt passed as a positional runs automatically and keeps the TUI interactive, used by
       // handoff auto-continue (on resume) and by scheduled runs (an initial task on a new session).
       ...(s.continuation ? [String(s.continuation)] : []),
     ];

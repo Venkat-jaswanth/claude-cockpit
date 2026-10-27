@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The cockpit daemon — the one long-lived process.
+// The cockpit daemon: the one long-lived process.
 //
 // Responsibilities:
 //   - owns every managed session in a node-pty PTY, so a session outlives the window or tab
@@ -131,7 +131,7 @@ function armSeat(seat) {
   if (rec.running) return Promise.resolve(rec);
   Object.assign(rec, { running: true, startedAt: Date.now(), lastResult: null });
   arms.set(seat.name, rec);
-  const finish = r => { rec.running = false; rec.lastAt = Date.now(); rec.lastResult = r; addEvent('arm', `${seat.name}: ${r.ok ? '5-hour window started now (armed)' : 'arm failed — ' + r.reason}`); if (cfg.notifications && r.ok) notify('Claude Cockpit', `${seat.name}: 5-hour window armed — it now resets ~5h from now.`); schedulePersist(); return rec; };
+  const finish = r => { rec.running = false; rec.lastAt = Date.now(); rec.lastResult = r; addEvent('arm', `${seat.name}: ${r.ok ? '5-hour window started now (armed)' : 'arm failed: ' + r.reason}`); if (cfg.notifications && r.ok) notify('Claude Cockpit', `${seat.name}: 5-hour window armed. It now resets ~5h from now.`); schedulePersist(); return rec; };
   const u0 = readUsage(seat);
   if (!u0.loggedIn) return Promise.resolve(finish({ ok: false, reason: 'not logged in' }));
   const active = u0.fiveHour.resetsAt && !u0.fiveHour.assumedReset && new Date(u0.fiveHour.resetsAt).getTime() > Date.now();
@@ -198,7 +198,7 @@ function usageSummary() {
 
 for (const s of sessions.values()) {
   // Processes did not survive the daemon restart. Managed Claude sessions can be resumed;
-  // login sessions and outside (hook-only) sessions just end — the latter re-register via
+  // login sessions and outside (hook-only) sessions just end; the latter re-register via
   // their hooks if they are in fact still running.
   if (s.alive || !['ended', 'lost'].includes(s.status)) s.status = (s.kind === 'claude' && s.managed) ? 'lost' : 'ended';
   s.alive = false; s.pid = null; s.handoff = null; s.pendingHandoff = null;
@@ -233,7 +233,7 @@ function isLiveClaude(s, now = Date.now()) {
   return now - s.lastActivity < OUTSIDE_STALE_MS; // outside: trust it only while its hooks are recent
 }
 function activeSessionsOn(seatName) { let n = 0; const now = Date.now(); for (const s of sessions.values()) if (s.seat === seatName && isLiveClaude(s, now)) n++; return n; }
-// Only sessions cockpit itself is running on the seat — what the seat card means by "running".
+// Only sessions cockpit itself is running on the seat: what the seat card means by "running".
 // Excludes plain `claude` runs the user started in their own terminals (those show the usage,
 // not a cockpit "running" count).
 function managedSessionsOn(seatName) { let n = 0; for (const s of sessions.values()) if (s.seat === seatName && s.kind === 'claude' && s.managed && s.alive) n++; return n; }
@@ -463,7 +463,7 @@ function openInTerminalApp(cs) {
   const node = shq(process.execPath), cli = shq(path.join(PKG_ROOT, 'bin', 'cockpit.js'));
   // Run attach directly (not via exec) so that if it exits with an error the window stays
   // open with the message instead of vanishing. On a clean end the window closes.
-  const cmd = `clear; ${node} ${cli} attach ${shq(cs)}; __c=$?; if [ $__c -ne 0 ]; then echo; echo '[cockpit] attach exited ('$__c') — see above. Press Enter to close.'; read _; fi`;
+  const cmd = `clear; ${node} ${cli} attach ${shq(cs)}; __c=$?; if [ $__c -ne 0 ]; then echo; echo '[cockpit] attach exited ('$__c'). See above. Press Enter to close.'; read _; fi`;
   const app = cfg.terminalApp || 'Terminal';
   const script = app === 'iTerm'
     ? `tell application "iTerm"\nactivate\nset w to (create window with default profile)\ntell current session of w to write text "${cmd.replace(/"/g, '\\"')}"\nend tell`

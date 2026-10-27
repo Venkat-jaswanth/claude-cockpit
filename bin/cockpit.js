@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The `cockpit` CLI. Every command here is a thin client: it ensures the daemon is up and
 // then calls its HTTP API (src/client.js), or manages seats/hooks directly on disk for the
-// setup commands. The dashboard exposes the same actions as buttons — this is the keyboard
+// setup commands. The dashboard exposes the same actions as buttons; this is the keyboard
 // path to them. `cockpit <cmd> --help` and the usage() text below list the full command set.
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';

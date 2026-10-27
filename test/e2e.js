@@ -158,7 +158,7 @@ try {
   a.mark(); a.write('work\r');  // completes a turn on b, then daemon hands off b -> a at Stop
   check(await a.waitFor(/cockpit: b → a/, 12000), 'between-turns handoff b -> a fired automatically');
   check(await a.waitFor(new RegExp(`seat=dot-claude session=${sessionId} mode=resume`), 8000), 'resumed on seat a');
-  check(await a.waitFor(/\[fake-claude\] prompt: Please continue/, 10000), 'the continuation prompt auto-ran on resume — no user input needed');
+  check(await a.waitFor(/\[fake-claude\] prompt: Please continue/, 10000), 'the continuation prompt auto-ran on resume, no user input needed');
   let acOk = false; const tAc = Date.now();
   while (Date.now() - tAc < 10000) { const cur = (await st()).sessions.find(x => x.cs === s.cs); if (cur.seat === 'a' && cur.turns >= acBefore + 2) { acOk = true; break; } await sleep(300); }
   check(acOk, `handoff ran the work turn and then auto-continued (turns ${acBefore} -> ${acBefore + 2})`);

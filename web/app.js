@@ -4,7 +4,7 @@ const VIEWS = {
   overview: ['Overview', 'Seats, running sessions and today at a glance'],
   seats: ['Seats', 'One isolated Claude Code login per account'],
   sessions: ['Sessions', 'Running now, or waiting to be resumed'],
-  library: ['Projects', 'Every stored conversation, grouped by project — star, tag and resume on any seat'],
+  library: ['Projects', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
   usage: ['Usage', 'Tokens booked to the seat that ran each turn; cost is Claude Code\'s own estimate'],
   activity: ['Activity', 'What the daemon did and why'],
   settings: ['Settings', 'Handoff policy and automation'],
@@ -92,7 +92,7 @@ function vOverview() {
     <div class="grid cols-2">
       <div class="card"><div class="card-head"><h2>Running sessions <span class="badge">${running.length}</span></h2><a href="#/sessions" class="tiny">All sessions</a></div><div class="list" id="ovSessions">${sessionsHtml}</div>
         ${lost.length ? `<div class="row" style="border-top:1px solid var(--line);margin-top:4px"><span class="dot lost"></span><div class="grow"><div class="title">${lost.length} session${lost.length === 1 ? '' : 's'} stopped when the daemon restarted</div><div class="sub">Resume them from Sessions</div></div><a href="#/sessions" class="btn sm">Show</a></div>` : ''}
-        ${outside.length ? `<div class="row" style="border-top:1px solid var(--line);margin-top:4px"><span class="dot idle"></span><div class="grow"><div class="title">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit</div><div class="sub">Started with plain <code>claude</code> — visible, but can't be attached or handed off</div></div><a href="#/sessions" class="btn sm">Show</a></div>` : ''}
+        ${outside.length ? `<div class="row" style="border-top:1px solid var(--line);margin-top:4px"><span class="dot idle"></span><div class="grow"><div class="title">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit</div><div class="sub">Started with plain <code>claude</code>, so they're visible but can't be attached or handed off</div></div><a href="#/sessions" class="btn sm">Show</a></div>` : ''}
       </div>
       <div style="display:grid;gap:14px;align-content:start">
         <div class="grid cols-3">
@@ -129,7 +129,7 @@ function vSeats() {
       ${weekly}
       <div class="sessline">
         <span class="slabel">Sessions</span>
-        <span class="scount ${s.activeSessions ? 'on' : ''}" title="Running inside cockpit — you can attach to these and hand them off">● ${s.activeSessions || 0} cockpit</span>
+        <span class="scount ${s.activeSessions ? 'on' : ''}" title="Running inside cockpit: you can attach to these and hand them off">● ${s.activeSessions || 0} cockpit</span>
         <span class="scount normal ${s.outsideSessions ? 'on' : ''}" title="Plain 'claude' you ran in your own terminals on this account. Cockpit can't attach to or hand these off; they still use the account's quota.">○ ${s.outsideSessions || 0} normal</span>
       </div>
       <div class="foot"><span>${u.fetchedAt ? `reading from ${ago(u.fetchedAt)}` : ''}</span></div>
@@ -251,7 +251,7 @@ function vLibrary() {
   }
   return `<div class="card flat" style="padding:12px 14px;margin-bottom:14px">
       <div class="toolbar">
-        <input class="inp" id="libSearch" placeholder="Filter by title/folder/tag — press ↵ to search inside conversations" value="${esc(libFilter)}">
+        <input class="inp" id="libSearch" placeholder="Filter by title/folder/tag; press ↵ to search inside conversations" value="${esc(libFilter)}">
         <button class="btn sm" id="deepBtn" title="Search the full text of every stored conversation">Search contents</button>
         <div class="seg" id="libGroupSeg">
           ${['project','folder','flat'].map(g => `<button class="${libGroup === g ? 'on' : ''}" data-group-mode="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}
@@ -301,7 +301,7 @@ function vSettings() {
     <h3 style="margin-top:8px">Usage checks</h3>
     <label class="field"><span>Re-check idle seats automatically</span><select name="autoCheckMin"><option value="0" ${!c.autoCheckMin ? 'selected' : ''}>Only when I press Check usage</option><option value="30" ${c.autoCheckMin == 30 ? 'selected' : ''}>Every 30 minutes</option><option value="60" ${c.autoCheckMin == 60 ? 'selected' : ''}>Every hour</option><option value="180" ${c.autoCheckMin == 180 ? 'selected' : ''}>Every 3 hours</option></select></label>
     <h3 style="margin-top:8px">Cost budget</h3>
-    <label class="field"><span>Monthly budget (USD) <span class="muted">— 0 = off; warns on the Usage page when this month's spend crosses it</span></span><input name="budgetMonthlyUSD" type="number" min="0" step="1" value="${c.budgetMonthlyUSD || 0}"></label>
+    <label class="field"><span>Monthly budget (USD) <span class="muted">(0 = off; warns on the Usage page when this month's spend crosses it)</span></span><input name="budgetMonthlyUSD" type="number" min="0" step="1" value="${c.budgetMonthlyUSD || 0}"></label>
     <h3 style="margin-top:8px">Appearance</h3>
     <label class="field"><span>Theme</span><select name="theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match the system</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>
     <h3 style="margin-top:8px">Notifications</h3>
@@ -370,7 +370,7 @@ async function bulkAction(kind) {
 }
 let lastSig = null, lastRenderedView = null;
 // A compact signature of exactly what the current view renders. When it is unchanged we skip
-// rebuilding #content, so the 3s poll no longer flickers the page or steals focus — and it lets
+// rebuilding #content, so the 3s poll no longer flickers the page or steals focus, and it lets
 // entrance motion play only when something actually changed, never on every poll.
 function renderSig() {
   const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt]);
@@ -395,7 +395,7 @@ function render() {
   $('#btnCheckAll').disabled = !!state.probing; $('#btnCheckAll').textContent = state.probing ? 'Checking…' : 'Check usage';
   if (dirtyForms.has(view)) return;
   const sig = renderSig();
-  if (sig === lastSig) return;          // nothing the view shows has changed — leave the DOM alone
+  if (sig === lastSig) return;          // nothing the view shows has changed, leave the DOM alone
   const viewChanged = view !== lastRenderedView;
   lastSig = sig; lastRenderedView = view;
   const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
