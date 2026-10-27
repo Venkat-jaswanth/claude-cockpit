@@ -20,8 +20,8 @@ machine you control. A few things worth knowing when assessing it:
 - **State stays local** under `~/.claude-cockpit/` (seats, policy, token ledger, logs).
 - **Session deletion is guarded** to paths under the base Claude directory.
 
-If you find a way these protections can be bypassed — the daemon serving non-local clients,
-data leaving the machine, a path-traversal in session handling, or similar — please report
+If you find a way these protections can be bypassed (the daemon serving non-local clients,
+data leaving the machine, a path-traversal in session handling, or similar), please report
 it privately as above.
 
 ## Account sharing

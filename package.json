@@ -1,7 +1,7 @@
 {
   "name": "claude-cockpit",
   "version": "0.5.0",
-  "description": "Run and manage several Claude Code accounts from one machine: per-account isolation, 5-hour usage visibility, a local dashboard, and opt-in session handoff.",
+  "description": "A local control room for Claude Code: run sessions in the background, attach from your browser or Terminal, search and organize your history, and manage several accounts with live usage, all from one dashboard.",
   "type": "module",
   "bin": {
     "cockpit": "bin/cockpit.js"
@@ -20,6 +20,8 @@
     "rate-limit",
     "multi-account",
     "session-manager",
+    "terminal",
+    "background-sessions",
     "pty"
   ],
   "author": "Venkat Jaswanth",
