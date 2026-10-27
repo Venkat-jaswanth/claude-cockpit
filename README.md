@@ -4,17 +4,20 @@
 
 ### A local control room for Claude Code.
 
-Run sessions in the background, attach to any of them from your browser or Terminal, search and organize everything you've ever run, and manage several accounts from one dashboard.
+Run sessions in the background, attach to any of them from your browser or Terminal,
+search and organize everything you've ever run, and manage several accounts from one dashboard.
 
 [![release](https://img.shields.io/github/v/release/Venkat-jaswanth/claude-cockpit?color=1f6feb&label=release)](https://github.com/Venkat-jaswanth/claude-cockpit/releases)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)
 ![platform](https://img.shields.io/badge/platform-macOS-lightgrey)
-![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
 <br>
 
-![Claude Cockpit dashboard](docs/overview-light.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/overview-dark.png">
+  <img alt="Claude Cockpit dashboard" src="docs/overview-light.png" width="100%">
+</picture>
 
 </div>
 
@@ -27,66 +30,71 @@ Claude Code is great in a single terminal. The moment you lean on it for real wo
 - Running a second account means logging out and back in.
 - Nothing shows you, at a glance, what's running and how much headroom is left.
 
-**Claude Cockpit** turns Claude Code into something you run from a control room. Every session lives in a background daemon, so closing a tab never kills your work. You attach to any session from a browser tab or from Terminal.app, whichever is in front of you. Every conversation you've ever run is searchable, groupable and resumable. And each account stays logged in as its own seat, with its live usage always on screen.
+**Claude Cockpit** turns Claude Code into something you run from a control room. Every session lives
+in a background daemon, so closing a tab never kills your work. You attach to any session from a
+browser tab or from Terminal.app, whichever is in front of you. Every conversation you've ever run is
+searchable, groupable and resumable. And each account stays logged in as its own seat, with its live
+usage always on screen.
 
-It reads **only** the rate-limit numbers Claude Code already caches on disk. It never reads your OAuth tokens or your Keychain, it makes no network calls of its own, and it never sends a prompt you didn't ask for.
+It reads **only** the rate-limit numbers Claude Code already caches on disk. It never reads your OAuth
+tokens or your Keychain, it makes no network calls of its own, and it never sends a prompt you didn't ask for.
 
 ## Features
 
-It's not just an account switcher. It's where your sessions live, run and get found again.
+Not just an account switcher. This is where your sessions live, run, and get found again.
 
-#### Run &amp; attach
-
-| | |
-|---|---|
-| 🖥️ **Background sessions** | Every session runs in a PTY owned by the daemon. Close the tab or quit Terminal and it keeps running. Reattach whenever you come back. |
-| 🌐 **Attach in a browser or Terminal** | Open any live session as a full terminal in a browser tab, or pop it into Terminal.app. Same session either way. |
-| ⏰ **Scheduled runs** | Queue a session to start now, in a few hours, or at a seat's next reset, with an initial task waiting for it. |
-| ⌨️ **Command palette** | Hit `⌘K` to jump to any view, seat, session or action. |
-
-#### Organize everything
+### Run &amp; attach
 
 | | |
 |---|---|
-| 🗂️ **Session library &amp; projects** | Every stored conversation, grouped by git repo. Star, tag, note, archive and resume any of them on any seat. |
-| 🔎 **Full-text search** | Grep across every transcript on the machine and get readable snippets back. |
-| ☑️ **Bulk actions** | Select a batch of conversations and star, tag, move, archive or delete them in one go. |
+| **Background sessions** | Every session runs in a PTY owned by the daemon. Close the tab or quit Terminal and it keeps running. Reattach whenever you come back. |
+| **Browser or Terminal** | Open any live session as a full terminal in a browser tab, or pop it into Terminal.app. Same session either way. |
+| **Scheduled runs** | Queue a session to start now, in a few hours, or at a seat's next reset, with an initial task waiting for it. |
+| **Command palette** | Press `⌘K` to jump to any view, seat, session or action. |
 
-#### Several accounts, one view
-
-| | |
-|---|---|
-| 🪑 **Isolated seats** | One `CLAUDE_CONFIG_DIR` per account, each with its own credentials. Projects, memory, plugins, skills and history are shared through symlinks, so every seat sees the same work. |
-| 📊 **Usage without tokens** | Reads each account's cached 5-hour and weekly rate-limit status straight from disk. No OAuth tokens, no Keychain, no network calls. |
-| 🔥 **Burn-rate &amp; ETA** | Per-seat percent-per-hour and time-to-full, so you know which seat to reach for next. |
-| ⚡ **Arm the 5-hour window** | Kick off a seat's window at roughly zero cost with a cheap model, one seat or every idle seat at once. |
-| 🔀 **Opt-in handoff** | When a seat runs low, move a running session to a fresher one between turns and carry on. Ships **off by default**. |
-
-#### Spend &amp; polish
+### Organize everything
 
 | | |
 |---|---|
-| 💸 **Token &amp; cost accounting** | Tokens booked per turn to the seat that ran them: today, 7 days, all-time, a 14-day chart, per-seat spend, top sessions, CSV export. |
-| 🎯 **Monthly budget** | Set a monthly spend cap and watch the budget bar fill. |
-| 📟 **Status line** | Show the active seat's remaining window right in Claude Code's status line. |
-| 🌗 **Light &amp; dark** | A calm graphite theme, both ways. |
+| **Session library** | Every stored conversation, grouped by git repo. Star, tag, note, archive and resume any of them on any seat. |
+| **Full-text search** | Grep across every transcript on the machine and get readable snippets back. |
+| **Bulk actions** | Select a batch of conversations and star, tag, move, archive or delete them in one go. |
+
+### Several accounts, one view
+
+| | |
+|---|---|
+| **Isolated seats** | One `CLAUDE_CONFIG_DIR` per account, each with its own credentials. Projects, memory, plugins, skills and history are shared through symlinks, so every seat sees the same work. |
+| **Usage without tokens** | Reads each account's cached 5-hour and weekly rate-limit status straight from disk. No OAuth tokens, no Keychain, no network calls. |
+| **Burn-rate &amp; ETA** | Per-seat burn rate (%/hour) and time-to-full, so you know which seat to reach for next. |
+| **Arm the 5-hour window** | Kick off a seat's window at roughly zero cost with a cheap model, one seat or every idle seat at once. |
+| **Opt-in handoff** | When a seat runs low, move a running session to a fresher one between turns and carry on. Ships **off by default**. |
+
+### Spend &amp; polish
+
+| | |
+|---|---|
+| **Token &amp; cost accounting** | Tokens booked per turn to the seat that ran them: today, 7 days, all-time, a 14-day chart, per-seat spend, top sessions, CSV export. |
+| **Monthly budget** | Set a monthly spend cap and watch the budget bar fill. |
+| **Status line** | Show the active seat's remaining window right in Claude Code's status line. |
+| **Light &amp; dark** | A calm graphite theme, both ways. |
 
 ## Screenshots
 
-**Projects.** Every conversation grouped into collapsible folders, resumable on any seat:
+**Projects.** Every conversation grouped into collapsible folders, resumable on any seat.
 
 ![Projects view](docs/projects-light.png)
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Usage.** Budget, a 14-day trend, per-seat spend and top sessions.
 
 ![Usage](docs/usage-light.png)
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Seats.** One isolated login per account, each with its own windows.
 
@@ -96,20 +104,20 @@ It's not just an account switcher. It's where your sessions live, run and get fo
 </tr>
 </table>
 
-**Attach in the browser.** Open any live session as a full terminal in a tab (or send it to Terminal.app), hand it off, or stop it:
+**Attach in the browser.** Open any live session as a full terminal in a tab, hand it off, or stop it.
 
 ![Web terminal](docs/terminal-web.png)
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Command palette** (`⌘K`). Jump anywhere or run any action.
 
 ![Command palette](docs/command-palette.png)
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Dark mode** throughout.
 
@@ -121,7 +129,7 @@ It's not just an account switcher. It's where your sessions live, run and get fo
 
 ## Install
 
-> npm distribution is planned. For now, install from source:
+> npm distribution is planned. For now, install from source.
 
 ```bash
 git clone https://github.com/Venkat-jaswanth/claude-cockpit ~/claude-cockpit
@@ -135,6 +143,8 @@ cockpit open                                     # opens the dashboard, where yo
 
 <details>
 <summary><b>Everyday use</b> (the CLI; everything here is also a button in the dashboard)</summary>
+
+<br>
 
 ```bash
 cockpit start                        # Claude Code in this folder, on the seat with the most headroom
@@ -168,6 +178,8 @@ Enabling handoff across accounts that aren't yours is a choice you make, with th
 <details>
 <summary><b>How a handoff works</b></summary>
 
+<br>
+
 1. Claude Code's `Stop` hook tells the daemon the turn is over.
 2. The daemon reads every seat's cached usage and applies your policy (`off` / `ask` / `auto`).
 3. It sends Ctrl-C, Ctrl-U, `/exit` to the session's terminal and waits for exit.
@@ -182,6 +194,8 @@ are still visible on the dashboard (their hooks report in) but can't be attached
 
 <details>
 <summary><b>Where state lives</b></summary>
+
+<br>
 
 ```
 ~/.claude-cockpit/config.json      seats and policy
@@ -204,11 +218,13 @@ Hooks are added to each seat's `settings.json` under `SessionStart`, `UserPrompt
 Cockpit runs on **macOS** today. The platform-specific surface is small and isolated to
 three files: launchd (`src/daemonctl.js`), `osascript` notifications (`src/notify.js`), and
 opening Terminal.app (`src/daemon.js`). A Linux port (systemd + `notify-send` +
-`x-terminal-emulator`) is a modest job and a Windows port a larger one. **Contributions
-welcome**, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+`x-terminal-emulator`) is a modest job and a Windows port a larger one. Contributions are
+welcome, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 <details>
 <summary><b>Caveats</b></summary>
+
+<br>
 
 - **Usage freshness.** A seat's limit reading only refreshes while a session runs on it. Idle
   seats show their last known value; once the window's reset time passes, cockpit assumes 0%.
