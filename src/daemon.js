@@ -399,6 +399,9 @@ function handleHook(ev, q, body) {
       break;
     case 'StopFailure':
       refreshUsage();
+      // A turn can end in failure as well as cleanly. A handoff the user queued mid-turn must
+      // still fire here; otherwise it hangs "queued" forever, because a StopFailure is not a Stop.
+      if (s.pendingHandoff) { const to = seatByName(cfg, s.pendingHandoff.to); s.pendingHandoff = null; if (to) { s.status = 'idle'; doHandoff(s, to, 'manual', { trigger: 'manual' }); break; } }
       if (/limit|429|rate.?limit/i.test(JSON.stringify(body))) signalLimit(s, 'StopFailure', 'turn failed with a limit error');
       else { s.status = 'idle'; evaluate(s, { trigger: 'stop' }); }
       break;

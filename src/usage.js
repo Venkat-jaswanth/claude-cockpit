@@ -43,6 +43,9 @@ export function readUsage(seat, now = Date.now()) {
   }
   if (!weekly.length && u.seven_day?.utilization != null) weekly.push({ label: 'Weekly', pct: u.seven_day.utilization, resetsAt: u.seven_day.resets_at || null, active: true });
   if (u.seven_day_opus?.utilization != null && !weekly.some(w => /Opus/i.test(w.label))) weekly.push({ label: 'Weekly · Opus', pct: u.seven_day_opus.utilization, resetsAt: u.seven_day_opus.resets_at || null, active: true });
-  const stale = !fh.assumedReset && (ageMin == null || ageMin > STALE_MIN);
+  // An assumed-reset reading is a guess: we only know the OLD window's reset time has passed,
+  // not that a fresh window was actually granted. Treat it as non-authoritative so it never
+  // overrules a real limit error, and so the dashboard doesn't present a guessed 0% as fact.
+  const stale = fh.assumedReset || ageMin == null || ageMin > STALE_MIN;
   return { ...identity, known: true, fetchedAt, ageMin, stale, fiveHour: fh, weekly, extraUsage: { enabled: !!u.extra_usage?.is_enabled }, limits };
 }
