@@ -1,9 +1,20 @@
 const cs = decodeURIComponent(location.pathname.split('/').pop());
 const $ = s => document.querySelector(s);
-const term = new Terminal({ cursorBlink: true, fontSize: 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: { background: '#0f1115' }, scrollback: 5000, allowProposedApi: true });
+// Terminal appearance presets, kept in sync with the dashboard's Settings (localStorage cockpit.term).
+const TERM_THEMES = {
+  Midnight: { background: '#0f1115', foreground: '#e6e6ea', cursor: '#e6e6ea', selectionBackground: 'rgba(120,120,170,.35)' },
+  Graphite: { background: '#1b1b1e', foreground: '#f0f0f3', cursor: '#f0f0f3', selectionBackground: 'rgba(255,255,255,.18)' },
+  Matrix: { background: '#001400', foreground: '#39ff14', cursor: '#39ff14', selectionBackground: 'rgba(57,255,20,.25)' },
+  Cyberpunk: { background: '#0b0221', foreground: '#ff2fb9', cursor: '#00e5ff', selectionBackground: 'rgba(0,229,255,.25)' },
+  Paper: { background: '#f7f7f4', foreground: '#1d1d1f', cursor: '#1d1d1f', selectionBackground: 'rgba(0,0,0,.12)' },
+};
+const termPrefs = () => { try { return { theme: 'Midnight', fontSize: 13, cursor: 'block', ...JSON.parse(localStorage.getItem('cockpit.term') || '{}') }; } catch { return { theme: 'Midnight', fontSize: 13, cursor: 'block' }; } };
+const _tp = termPrefs(), _theme = TERM_THEMES[_tp.theme] || TERM_THEMES.Midnight;
+const term = new Terminal({ cursorBlink: true, cursorStyle: _tp.cursor || 'block', fontSize: Number(_tp.fontSize) || 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: _theme, scrollback: 5000, allowProposedApi: true });
 const fit = new FitAddon.FitAddon();
 term.loadAddon(fit);
 term.open($('#term'));
+document.body.style.background = _theme.background; $('#term').style.background = _theme.background;
 fit.fit();
 let ws = null, info = null, closedByServer = false;
 
