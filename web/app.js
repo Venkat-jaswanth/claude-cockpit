@@ -32,6 +32,16 @@ function applyAccent(name) {
   try { localStorage.setItem('cockpit.accent', accent); } catch {}
 }
 (() => { let a; try { a = localStorage.getItem('cockpit.accent'); } catch {} applyAccent(a || 'graphite'); })();
+// Terminal appearance presets, shared by the workspace panes and the standalone terminal view.
+const TERM_THEMES = {
+  Midnight: { background: '#0f1115', foreground: '#e6e6ea', cursor: '#e6e6ea', selectionBackground: 'rgba(120,120,170,.35)' },
+  Graphite: { background: '#1b1b1e', foreground: '#f0f0f3', cursor: '#f0f0f3', selectionBackground: 'rgba(255,255,255,.18)' },
+  Matrix: { background: '#001400', foreground: '#39ff14', cursor: '#39ff14', selectionBackground: 'rgba(57,255,20,.25)' },
+  Cyberpunk: { background: '#0b0221', foreground: '#ff2fb9', cursor: '#00e5ff', selectionBackground: 'rgba(0,229,255,.25)' },
+  Paper: { background: '#f7f7f4', foreground: '#1d1d1f', cursor: '#1d1d1f', selectionBackground: 'rgba(0,0,0,.12)' },
+};
+function termPrefs() { try { return { theme: 'Midnight', fontSize: 13, cursor: 'block', ...JSON.parse(localStorage.getItem('cockpit.term') || '{}') }; } catch { return { theme: 'Midnight', fontSize: 13, cursor: 'block' }; } }
+function termXtermOptions() { const p = termPrefs(); return { cursorBlink: true, cursorStyle: p.cursor || 'block', fontSize: Number(p.fontSize) || 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: TERM_THEMES[p.theme] || TERM_THEMES.Midnight, scrollback: 4000, allowProposedApi: true }; }
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = p => (p || '').replace(/^\/Users\/[^/]+/, '~');
@@ -369,7 +379,7 @@ function vUsage() {
 function events(list) { return list.length ? list.map(e => `<div class="ev"><span class="t">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span class="k ${esc(e.type)}">${esc(e.type)}</span><span>${esc(e.msg)}</span></div>`).join('') : '<div class="empty">Nothing yet.</div>'; }
 function vActivity() { return `<div class="card"><div class="events">${events(state.events)}</div></div>`; }
 function vSettings() {
-  const c = state.config;
+  const c = state.config; const tp = termPrefs();
   return `<form class="card form" id="settings">
     <h3>Handoff</h3>
     <label class="field"><span>Mode</span><select name="mode"><option value="auto" ${c.handoff.mode === 'auto' ? 'selected' : ''}>Auto · move sessions between turns when a seat runs low</option><option value="ask" ${c.handoff.mode === 'ask' ? 'selected' : ''}>Ask · notify me, I press Hand off</option><option value="off" ${c.handoff.mode === 'off' ? 'selected' : ''}>Off · never move anything automatically</option></select></label>
@@ -384,6 +394,9 @@ function vSettings() {
     <label class="field"><span>Theme</span><select name="theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match the system</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>
     <label class="field"><span>Motion</span><select name="motion"><option value="full" ${motion === 'full' ? 'selected' : ''}>Full</option><option value="reduced" ${motion === 'reduced' ? 'selected' : ''}>Reduced (fewer animations)</option></select></label>
     <div class="field"><span>Accent</span><div class="swatches">${Object.keys(ACCENTS).map(n => `<button type="button" class="swatch ${accent === n ? 'on' : ''}" data-accent="${n}" title="${n[0].toUpperCase() + n.slice(1)}"${ACCENTS[n] ? ` style="background:${ACCENTS[n][0]}"` : ''}>${ACCENTS[n] ? '' : '<span class="sw-g"></span>'}</button>`).join('')}</div></div>
+    <h3 style="margin-top:8px">Terminal</h3>
+    <div class="field-row"><label class="field"><span>Color theme</span><select name="termTheme">${Object.keys(TERM_THEMES).map(n => `<option value="${n}" ${tp.theme === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label class="field"><span>Font size</span><input name="termSize" type="number" min="9" max="22" value="${tp.fontSize}"></label></div>
+    <label class="field"><span>Cursor</span><select name="termCursor">${['block', 'bar', 'underline'].map(cu => `<option value="${cu}" ${tp.cursor === cu ? 'selected' : ''}>${cu[0].toUpperCase() + cu.slice(1)}</option>`).join('')}</select></label>
     <h3 style="margin-top:8px">Notifications</h3>
     <label class="field inline"><input name="notifications" type="checkbox" ${c.notifications ? 'checked' : ''}><span>macOS notifications for handoffs, limits and recommendations</span></label>
     <div><button class="btn primary" type="submit">Save</button></div></form>`;
@@ -568,6 +581,8 @@ function wire(el) {
   if (settings) {
     settings.addEventListener('input', () => dirtyForms.add('settings'));
     settings.querySelectorAll('[data-accent]').forEach(b => b.onclick = () => { applyAccent(b.dataset.accent); settings.querySelectorAll('[data-accent]').forEach(x => x.classList.toggle('on', x === b)); });
+    const saveTerm = () => { try { localStorage.setItem('cockpit.term', JSON.stringify({ theme: settings.termTheme.value, fontSize: Number(settings.termSize.value) || 13, cursor: settings.termCursor.value })); } catch {} if (view === 'workspace' && wsCtl.built) wsCtl.applyAppearance(); };
+    ['termTheme', 'termSize', 'termCursor'].forEach(n => { const e2 = settings.querySelector(`[name="${n}"]`); if (e2) e2.addEventListener('change', saveTerm); });
     settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); applyMotion(f.motion.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
   }
 }
@@ -708,8 +723,9 @@ class WsPane {
   constructor(cs, node, endedAtMount) { this.cs = cs; this.node = node; this.endedAtMount = !!endedAtMount; this.ended = false; this.term = null; this.fit = null; this.ws = null; }
   mount() {
     const body = this.node.querySelector('.wp-term');
-    this.term = new Terminal({ cursorBlink: true, fontSize: 12.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: { background: '#0f1115' }, scrollback: 4000, allowProposedApi: true });
+    this.term = new Terminal(termXtermOptions());
     this.fit = new FitAddon.FitAddon(); this.term.loadAddon(this.fit); this.term.open(body);
+    body.style.background = (TERM_THEMES[termPrefs().theme] || TERM_THEMES.Midnight).background;
     this.term.onData(d => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'in', d })); });
     this.term.onResize(({ cols, rows }) => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'rs', cols, rows })); });
     requestAnimationFrame(() => { this.fitNow(); if (this.endedAtMount) this.markEnded(); else this.connect(); });
@@ -723,6 +739,15 @@ class WsPane {
     setTimeout(() => { try { this.fit.fit(); } catch {} }, 120);
   }
   fitNow() { try { this.fit && this.fit.fit(); } catch {} }
+  applyAppearance() {
+    if (!this.term) return;
+    const p = termPrefs(), th = TERM_THEMES[p.theme] || TERM_THEMES.Midnight;
+    this.term.options.fontSize = Number(p.fontSize) || 13;
+    this.term.options.cursorStyle = p.cursor || 'block';
+    this.term.options.theme = th;
+    const body = this.node.querySelector('.wp-term'); if (body) body.style.background = th.background;
+    this.fitNow();
+  }
   markEnded(code) { this.ended = true; const o = this.node.querySelector('.wp-ended'); if (o) { o.hidden = false; if (code != null) { const c = o.querySelector('.wp-ended-code'); if (c) c.textContent = 'exit ' + code; } } }
   dispose() { try { this.ws && this.ws.close(); } catch {} try { this.term && this.term.dispose(); } catch {} }
 }
@@ -831,6 +856,7 @@ const wsCtl = {
   },
   refreshAll() { for (const cs of this.order) this.refreshPane(cs); },
   fitAll() { requestAnimationFrame(() => this.panes.forEach(p => p.fitNow())); setTimeout(() => this.panes.forEach(p => p.fitNow()), 280); },
+  applyAppearance() { this.panes.forEach(p => p.applyAppearance()); },
   update() { if (!this.built) return; const sig = this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + (this.focus || ''); if (sig !== this.barSig) this.refreshBar(); this.refreshAll(); },
   teardown() { this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
 };
