@@ -255,9 +255,15 @@ const manager = new SessionManager({
       const seat = seatByName(cfg, s.seat);
       addEvent('login', `login window for seat ${s.seat} closed (exit ${code})`, { cs: s.cs });
       if (seat) refreshIdentity(seat);
+    } else if (s.kind === 'claude' && s.managed && !s.stopping && code !== 0 && code != null) {
+      // The PTY died on its own: not a user stop, and not a handoff (those return before onExit).
+      // Mark it recoverable so the dashboard can offer a one-click resume.
+      s.status = 'crashed';
+      addEvent('error', `${label(s)}: exited unexpectedly (code ${code}); resume to continue`, { cs: s.cs });
     } else {
       addEvent('end', `${label(s)}: session ended (exit ${code})`, { cs: s.cs });
     }
+    s.stopping = false;
     schedulePersist();
   },
 });
@@ -572,7 +578,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, { ok: true, queued: true, to: to.name });
         }
         if (action === 'signal') { if (body.type === 'limit_hit') { refreshUsage(); signalLimit(s, 'client', String(body.text || '').slice(0, 80)); } return json(res, { ok: true }); }
-        if (action === 'stop') { const ok = await manager.kill(s); if (!ok && s.status !== 'ended') { s.status = 'ended'; s.alive = false; } addEvent('stop', `${label(s)}: stopped`, { cs: s.cs }); schedulePersist(); return json(res, { ok: true }); }
+        if (action === 'stop') { s.stopping = true; const ok = await manager.kill(s); if (!ok && s.status !== 'ended') { s.status = 'ended'; s.alive = false; } addEvent('stop', `${label(s)}: stopped`, { cs: s.cs }); schedulePersist(); return json(res, { ok: true }); }
         if (action === 'restore') {
           if (s.alive) return json(res, { error: 'already running' }, 400);
           if (s.kind !== 'claude') return json(res, { error: 'only Claude sessions can be restored' }, 400);
