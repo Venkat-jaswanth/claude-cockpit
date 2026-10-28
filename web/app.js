@@ -130,7 +130,7 @@ function vOverview() {
     : `<div class="card flat attn-clear"><span class="ok">●</span> All clear. Nothing needs you right now.</div>`;
   const runHtml = running.length
     ? `<div class="sessgrid">${running.map(s => `<div class="sesscard">
-        <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span></div>
+        <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span>${isStalled(s) ? '<span class="badge warn">stalled?</span>' : ''}</div>
         <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}</div>
         <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
       </div>`).join('')}</div>`
