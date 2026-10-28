@@ -30,6 +30,10 @@ function fmtCost(c) { c = Number(c) || 0; return c ? '$' + (c >= 100 ? c.toFixed
 const tot = t => (t?.input || 0) + (t?.output || 0) + (t?.cacheRead || 0) + (t?.cacheWrite || 0);
 const lvl = p => p == null ? 'unknown' : p >= 85 ? 'bad' : p >= 60 ? 'warn' : 'ok';
 const seatPct = s => s?.usage?.fiveHour?.pct ?? null;
+// A managed session that has stayed "busy" (mid-turn) this long with no turn boundary is probably
+// stuck. lastActivity only moves on hook events, so this measures turn-start age: keep it generous.
+const STALL_MIN = 25;
+const isStalled = s => s.alive && s.managed && s.kind === 'claude' && s.status === 'busy' && s.lastActivity && (Date.now() - s.lastActivity) / 60000 >= STALL_MIN;
 
 function toast(msg, kind = '') { const el = document.createElement('div'); el.className = `toast ${kind}`; el.textContent = msg; $('#toasts').appendChild(el); setTimeout(() => el.remove(), 3200); }
 async function post(p, body) {
@@ -90,6 +94,11 @@ function attnItems() {
   // warn: a seat almost out of its 5-hour window
   for (const s of state.seats) { const p = seatPct(s); if (!s.disabled && s.usage?.loggedIn && p != null && p >= 85 && !s.usage.fiveHour?.assumedReset)
     push('warn', '▲', `${esc(s.name)} is nearly out (${p}%)`, resetsText(s.usage.fiveHour?.resetsAt), ''); }
+  // warn: a session stuck busy far longer than a turn usually runs
+  for (const s of state.sessions.filter(isStalled)) {
+    const mins = Math.round((Date.now() - s.lastActivity) / 60000);
+    push('warn', '◴', `${esc(s.name || s.cs)} has been busy ${mins} min`, `No turn has finished on ${esc(s.seat || '?')} in a while. It may be on a long task, or stuck.`, `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`);
+  }
   // warn: nowhere fresh left to go
   const usable = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
   if (usable.length >= 2 && usable.every(s => { const p = seatPct(s); return p != null && p >= 80; }))
@@ -417,7 +426,7 @@ let lastSig = null, lastRenderedView = null;
 // entrance motion play only when something actually changed, never on every poll.
 function renderSig() {
   const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt, s.usage?.fiveHour?.assumedReset, s.probe?.lastResult ? !!s.probe.lastResult.ok : 2]);
-  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff]);
+  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff, isStalled(s)]);
   const ev = (state?.events || [])[0]?.at;
   const base = { view, dirty: [...dirtyForms], seats, sess, ev, probing: state?.probing, jobs: (state?.jobs || []).map(j => [j.id, j.status, j.at]),
     cfg: state?.config && [state.config.handoff?.mode, state.config.handoff?.thresholdPct, state.config.notifications, state.config.autoCheckMin] };
