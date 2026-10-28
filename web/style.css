@@ -437,6 +437,11 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 .stat .s-lbl { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
 .git { color: var(--muted); white-space: nowrap; }
 .git-dirty { color: var(--warn); }
+.swatches { display: flex; gap: 9px; flex-wrap: wrap; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line-strong); cursor: pointer; padding: 0; background: var(--panel); transition: transform 140ms var(--ease-out), box-shadow 140ms ease; }
+.swatch:active { transform: scale(0.9); }
+.swatch.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+.swatch .sw-g { display: block; width: 100%; height: 100%; border-radius: 50%; background: conic-gradient(#1d1d1f, #8a8a8f, #1d1d1f); }
 
 @media (max-width: 860px) { .seatchips { margin-left: 0; width: 100%; } }
 

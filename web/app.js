@@ -21,6 +21,17 @@ function applyTheme(t) { theme = ['light', 'dark'].includes(t) ? t : 'auto'; doc
 let motion = 'full';
 function applyMotion(m) { motion = m === 'reduced' ? 'reduced' : 'full'; document.documentElement.dataset.motion = motion === 'reduced' ? 'reduced' : ''; try { localStorage.setItem('cockpit.motion', motion); } catch {} }
 (() => { let m; try { m = localStorage.getItem('cockpit.motion'); } catch {} applyMotion(m || 'full'); })();
+// Accent presets. graphite (null) keeps the theme-aware monochrome default; others set [accent, soft, ink].
+const ACCENTS = { graphite: null, indigo: ['#5a5af0', '#7474f6', '#ffffff'], blue: ['#0a84ff', '#3d9bff', '#ffffff'], emerald: ['#15a46e', '#1ec07f', '#ffffff'], amber: ['#d98a00', '#f0a622', '#1b1b1f'], rose: ['#e5484d', '#f06066', '#ffffff'] };
+let accent = 'graphite';
+function applyAccent(name) {
+  accent = ACCENTS[name] !== undefined ? name : 'graphite';
+  const r = document.documentElement.style, v = ACCENTS[accent];
+  if (!v) { r.removeProperty('--accent'); r.removeProperty('--accent-soft'); r.removeProperty('--accent-ink'); }
+  else { r.setProperty('--accent', v[0]); r.setProperty('--accent-soft', v[1]); r.setProperty('--accent-ink', v[2]); }
+  try { localStorage.setItem('cockpit.accent', accent); } catch {}
+}
+(() => { let a; try { a = localStorage.getItem('cockpit.accent'); } catch {} applyAccent(a || 'graphite'); })();
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = p => (p || '').replace(/^\/Users\/[^/]+/, '~');
@@ -372,6 +383,7 @@ function vSettings() {
     <h3 style="margin-top:8px">Appearance</h3>
     <label class="field"><span>Theme</span><select name="theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match the system</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>
     <label class="field"><span>Motion</span><select name="motion"><option value="full" ${motion === 'full' ? 'selected' : ''}>Full</option><option value="reduced" ${motion === 'reduced' ? 'selected' : ''}>Reduced (fewer animations)</option></select></label>
+    <div class="field"><span>Accent</span><div class="swatches">${Object.keys(ACCENTS).map(n => `<button type="button" class="swatch ${accent === n ? 'on' : ''}" data-accent="${n}" title="${n[0].toUpperCase() + n.slice(1)}"${ACCENTS[n] ? ` style="background:${ACCENTS[n][0]}"` : ''}>${ACCENTS[n] ? '' : '<span class="sw-g"></span>'}</button>`).join('')}</div></div>
     <h3 style="margin-top:8px">Notifications</h3>
     <label class="field inline"><input name="notifications" type="checkbox" ${c.notifications ? 'checked' : ''}><span>macOS notifications for handoffs, limits and recommendations</span></label>
     <div><button class="btn primary" type="submit">Save</button></div></form>`;
@@ -555,6 +567,7 @@ function wire(el) {
   const settings = el.querySelector('#settings');
   if (settings) {
     settings.addEventListener('input', () => dirtyForms.add('settings'));
+    settings.querySelectorAll('[data-accent]').forEach(b => b.onclick = () => { applyAccent(b.dataset.accent); settings.querySelectorAll('[data-accent]').forEach(x => x.classList.toggle('on', x === b)); });
     settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); applyMotion(f.motion.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
   }
 }
