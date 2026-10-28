@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { HOME, STATE_FILE, PID_FILE, WEB_DIR, PKG_ROOT, PROFILES_DIR, CLAUDE_BIN, ensureHome, readJson, writeJson, BASE_CLAUDE_DIR } from './paths.js';
 import { loadConfig, saveConfig, portOf } from './config.js';
@@ -242,6 +242,23 @@ function refreshGit() {
     });
   }
 }
+const WORKTREES_DIR = path.join(HOME, 'worktrees');
+// Create an isolated git worktree for a repo and return its path (one-click worktree sessions).
+function makeWorktree(repo, labelName, branch) {
+  const safe = (labelName || 'session').replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 32) || 'session';
+  const dir = path.join(WORKTREES_DIR, `${safe}-${crypto.randomBytes(3).toString('hex')}`);
+  fs.mkdirSync(WORKTREES_DIR, { recursive: true });
+  const run = args => execFileSync('git', ['-C', repo, 'worktree', ...args], { timeout: 15000, stdio: 'pipe' });
+  if (branch) { try { run(['add', '-b', branch, dir]); } catch { run(['add', dir, branch]); } } // new branch, else check out existing
+  else run(['add', '--detach', dir, 'HEAD']);
+  return dir;
+}
+function removeWorktree(s) {
+  if (!s || !s.worktree) return;
+  try { execFileSync('git', ['-C', s.worktreeRepo || s.worktree, 'worktree', 'remove', '--force', s.worktree], { timeout: 15000, stdio: 'pipe' }); }
+  catch { try { fs.rmSync(s.worktree, { recursive: true, force: true }); } catch {} }
+  s.worktree = null;
+}
 const OUTSIDE_STALE_MS = Number(process.env.COCKPIT_OUTSIDE_STALE_MS) || 20 * 60000; // an outside session silent this long is treated as gone
 function isLiveClaude(s, now = Date.now()) {
   if (s.kind !== 'claude' || !s.alive) return false;
@@ -301,7 +318,7 @@ function newSession({ cs, kind = 'claude', cwd, seat, name, managed = true, sess
   const s = {
     cs: id, kind, sessionId: sessionId || crypto.randomUUID(), name: name || null, cwd: cwd || null, seat: seat || null, managed,
     status: 'starting', alive: false, pid: null, resume, extra, startedAt: Date.now(), lastActivity: Date.now(), turns: 0, handoffs: [],
-    lastPrompt: null, lastAssistant: null, handoff: null, pendingHandoff: null, transcriptPath: null, endedAt: null, exitCode: null, source: null, git: null,
+    lastPrompt: null, lastAssistant: null, handoff: null, pendingHandoff: null, transcriptPath: null, endedAt: null, exitCode: null, source: null, git: null, worktree: null, worktreeRepo: null,
   };
   sessions.set(id, s);
   schedulePersist();
@@ -458,7 +475,7 @@ function findSession(ref) {
   return live.find(s => s.name === ref) || live.find(s => s.sessionId === ref || s.sessionId.startsWith(ref)) || null;
 }
 
-function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, rows, initialPrompt }) {
+function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, rows, initialPrompt, worktree, branch }) {
   cfg = loadConfig();
   let cwdResolved = cwd ? path.resolve(cwd) : null;
   let stored = null;
@@ -468,7 +485,16 @@ function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, 
   const wantId = stored?.sessionId || resumeId || null;
   if (wantId) { const live = liveWrapperFor(wantId); if (live) { addEvent('attach', `${label(live)}: already running; opening it instead of starting a second copy`, { cs: live.cs }); return { cs: live.cs, sessionId: live.sessionId, seat: { name: live.seat, kind: (seatByName(cfg, live.seat)||{}).kind, configDir: (seatByName(cfg, live.seat)||{}).configDir }, existing: true }; } }
   const seat = chooseSeatForNew(seatName || null);
+  let worktreePath = null, worktreeRepo = null;
+  if (worktree && !resumeId) {
+    try {
+      worktreeRepo = execFileSync('git', ['-C', cwdResolved, 'rev-parse', '--show-toplevel'], { timeout: 8000, stdio: 'pipe' }).toString().trim();
+      worktreePath = makeWorktree(worktreeRepo, name || path.basename(worktreeRepo), branch ? String(branch).trim() : null);
+      cwdResolved = worktreePath;
+    } catch (e) { throw new Error(`could not create a git worktree: ${String(e.message).split('\n')[0]}`); }
+  }
   const s = newSession({ cwd: cwdResolved, seat: seat.name, name: name || (stored ? (stored.customTitle || null) : null), managed: true, sessionId: wantId, resume: !!resumeId, extra: Array.isArray(extra) ? extra.map(String) : [] });
+  if (worktreePath) { s.worktree = worktreePath; s.worktreeRepo = worktreeRepo; }
   if (initialPrompt) s.continuation = String(initialPrompt);
   manager.spawn(s, seat, { cols, rows });
   addEvent('start', `${label(s)}: ${resumeId ? 'resuming' : 'starting'} on ${seat.name}`, { cs: s.cs });
@@ -607,7 +633,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, { ok: true, cs: s.cs, seat: seat.name });
         }
         if (action === 'open-terminal') { openInTerminalApp(s.cs); return json(res, { ok: true }); }
-        if (action === 'forget') { if (s.alive) return json(res, { error: 'still running' }, 400); manager.forget(s.cs); sessions.delete(s.cs); schedulePersist(); return json(res, { ok: true }); }
+        if (action === 'forget') { if (s.alive) return json(res, { error: 'still running' }, 400); removeWorktree(s); manager.forget(s.cs); sessions.delete(s.cs); schedulePersist(); return json(res, { ok: true }); }
         if (action === 'rename') { s.name = String(body.name || '').slice(0, 80) || null; manager.broadcastInfo(s); schedulePersist(); return json(res, { ok: true }); }
       }
       if (p === '/api/seats') {
@@ -734,7 +760,7 @@ function poll() {
     const silent = Date.now() - OUTSIDE_STALE_MS;
     for (const s of sessions.values()) if (s.kind === 'claude' && !s.managed && s.alive && s.lastActivity < silent) { s.alive = false; s.status = 'ended'; s.endedAt = s.endedAt || s.lastActivity; }
     const cutoff = Date.now() - 48 * 3600 * 1000;
-    for (const [k, s] of sessions) if (!s.alive && ['ended', 'lost'].includes(s.status) && (s.endedAt || s.lastActivity) < cutoff) { manager.forget(k); sessions.delete(k); }
+    for (const [k, s] of sessions) if (!s.alive && ['ended', 'lost', 'crashed'].includes(s.status) && (s.endedAt || s.lastActivity) < cutoff) { removeWorktree(s); manager.forget(k); sessions.delete(k); }
     if (notified.size > 2000) notified.clear();
   } catch (e) { log('error', `poll: ${e.stack || e.message}`); }
   rearmPoll();
