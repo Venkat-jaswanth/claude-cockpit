@@ -455,7 +455,13 @@ function render() {
   const sig = renderSig();
   if (sig === lastSig) return;          // nothing the view shows has changed, leave the DOM alone
   const viewChanged = view !== lastRenderedView;
+  if (viewChanged && lastRenderedView === 'workspace' && view !== 'workspace') wsCtl.teardown();
   lastSig = sig; lastRenderedView = view;
+  if (view === 'workspace') {
+    if (viewChanged) { $('#content').innerHTML = '<div class="empty big" style="padding:64px">Loading workspace…</div>'; ensureXterm().then(() => { if (view === 'workspace') wsCtl.build($('#content')); }); }
+    else if (wsCtl.built) wsCtl.update();
+    return;
+  }
   const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
   const el = $('#content');
   const focus = document.activeElement?.id;
@@ -646,3 +652,147 @@ setInterval(load, 3000); setInterval(loadSlow, 15000);
   const bar = document.querySelector('.topbar-actions'); if (bar) bar.insertBefore(chip, bar.firstChild);
   if (/\bcmdk\b/.test(location.search)) setTimeout(show, 300); // for capture/testing
 })();
+
+/* ---------- Multi-session workspace (tabs + split panes) ---------- */
+// xterm is only needed here, so it is loaded on first open rather than on every dashboard load.
+let xtermLoading = null;
+function ensureXterm() {
+  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  if (xtermLoading) return xtermLoading;
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = '/vendor/xterm.css'; document.head.appendChild(css);
+  const js = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  xtermLoading = js('/vendor/xterm.js').then(() => js('/vendor/addon-fit.js'));
+  return xtermLoading;
+}
+// One live terminal bound to one session, speaking the same WS protocol as terminal.js.
+class WsPane {
+  constructor(cs, node, endedAtMount) { this.cs = cs; this.node = node; this.endedAtMount = !!endedAtMount; this.ended = false; this.term = null; this.fit = null; this.ws = null; }
+  mount() {
+    const body = this.node.querySelector('.wp-term');
+    this.term = new Terminal({ cursorBlink: true, fontSize: 12.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: { background: '#0f1115' }, scrollback: 4000, allowProposedApi: true });
+    this.fit = new FitAddon.FitAddon(); this.term.loadAddon(this.fit); this.term.open(body);
+    this.term.onData(d => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'in', d })); });
+    this.term.onResize(({ cols, rows }) => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'rs', cols, rows })); });
+    requestAnimationFrame(() => { this.fitNow(); if (this.endedAtMount) this.markEnded(); else this.connect(); });
+  }
+  connect() {
+    this.ended = false;
+    this.ws = new WebSocket(`ws://${location.host}/ws/${encodeURIComponent(this.cs)}?cols=${this.term.cols}&rows=${this.term.rows}`);
+    this.ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.t === 'out') this.term.write(m.d); else if (m.t === 'exit') this.markEnded(m.code); };
+    this.ws.onclose = () => { if (!this.ended) this.markEnded(); };
+    // A resize nudge right after connecting asks Claude Code to repaint its TUI into the fresh view.
+    setTimeout(() => { try { this.fit.fit(); } catch {} }, 120);
+  }
+  fitNow() { try { this.fit && this.fit.fit(); } catch {} }
+  markEnded(code) { this.ended = true; const o = this.node.querySelector('.wp-ended'); if (o) { o.hidden = false; if (code != null) { const c = o.querySelector('.wp-ended-code'); if (c) c.textContent = 'exit ' + code; } } }
+  dispose() { try { this.ws && this.ws.close(); } catch {} try { this.term && this.term.dispose(); } catch {} }
+}
+const wsCtl = {
+  panes: new Map(), order: [], layout: 'auto', focus: null, built: false, rootEl: null, grid: null, bar: null, barSig: '',
+  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; } catch {} },
+  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout })); } catch {} },
+  running() { return (state?.sessions || []).filter(s => s.alive && s.managed && s.kind === 'claude'); },
+  runningIds() { return this.running().map(s => s.cs); },
+  computeCols() { const n = this.order.length; if (this.layout !== 'auto') return Number(this.layout); return n <= 1 ? 1 : n <= 4 ? 2 : 3; },
+  applyCols() { if (this.grid) this.grid.style.setProperty('--cols', this.computeCols()); },
+  build(contentEl) {
+    this.load();
+    const inSess = new Set((state?.sessions || []).map(s => s.cs));
+    if (!this.order.length) this.order = this.runningIds().slice(0, 4);
+    else this.order = this.order.filter(cs => inSess.has(cs));
+    contentEl.innerHTML = `<div class="ws"><div class="ws-bar" id="wsBar"></div><div class="ws-grid" id="wsGrid"></div></div>`;
+    this.rootEl = contentEl.querySelector('.ws'); this.bar = contentEl.querySelector('#wsBar'); this.grid = contentEl.querySelector('#wsGrid');
+    this.wireRoot(); this.refreshBar(); this.renderGrid(); this.built = true;
+  },
+  wireRoot() {
+    this.rootEl.addEventListener('click', e => {
+      const lb = e.target.closest('[data-ws-layout]'); if (lb) return this.setLayout(lb.dataset.wsLayout);
+      if (e.target.closest('[data-ws-addall]')) return this.addAll();
+      if (e.target.closest('[data-ws-new]')) return openSheet();
+      if (e.target.closest('[data-ws-unfocus]')) return this.setFocus(null);
+      const wp = e.target.closest('[data-wp]'); if (wp) { const cs = wp.closest('.wp')?.dataset.cs; if (cs) this.paneAction(wp.dataset.wp, cs); }
+    });
+    this.rootEl.addEventListener('change', e => { const a = e.target.closest('[data-ws-add]'); if (a && a.value) { const v = a.value; a.value = ''; this.addPane(v); } });
+  },
+  barHtml() {
+    const running = this.running(), open = new Set(this.order), addable = running.filter(s => !open.has(s.cs));
+    const seg = `<div class="seg">${['auto', '1', '2', '3', '4'].map(l => `<button class="${this.layout === l ? 'on' : ''}" data-ws-layout="${l}">${l === 'auto' ? 'Auto' : l}</button>`).join('')}</div>`;
+    const add = addable.length ? `<select class="sel sm" data-ws-add><option value="">Add a session…</option>${addable.map(s => `<option value="${esc(s.cs)}">${esc(s.name || s.cs)} · ${esc(s.seat)}</option>`).join('')}</select>` : '';
+    const addAll = addable.length ? `<button class="btn sm" data-ws-addall>Add all (${addable.length})</button>` : '';
+    const unfocus = this.focus ? `<button class="btn sm" data-ws-unfocus>Exit focus</button>` : '';
+    return `${seg}${add}${addAll}${unfocus}<span class="spacer"></span><span class="tiny muted">${this.order.length} open · ${running.length} running</span><button class="btn sm primary" data-ws-new>New session</button>`;
+  },
+  refreshBar() { this.barSig = this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + (this.focus || ''); if (this.bar) this.bar.innerHTML = this.barHtml(); },
+  paneHtml(cs) {
+    const s = (state?.sessions || []).find(x => x.cs === cs) || { cs, name: cs, seat: '?', status: 'lost' };
+    const seat = (state?.seats || []).find(z => z.name === s.seat); const p = seat ? seatPct(seat) : null;
+    return `<div class="wp st-${esc(s.status || 'idle')}" data-cs="${esc(cs)}">
+      <div class="wp-head">
+        <span class="dot ${esc(s.status || 'idle')}"></span>
+        <span class="wp-name">${esc(s.name || cs)}</span>
+        <span class="wp-seat"><span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s.seat || '?')}${p != null ? ` ${p}%` : ''}</span>
+        <span class="wp-spacer"></span>
+        <button class="btn sm" data-wp="handoff" title="Move to the freshest seat">Hand off</button>
+        <button class="iconbtn" data-wp="pop" title="Open in Terminal app">⇱</button>
+        <button class="iconbtn" data-wp="max" title="Maximize">⤢</button>
+        <button class="iconbtn" data-wp="close" title="Remove from workspace">✕</button>
+      </div>
+      <div class="wp-term"></div>
+      <div class="wp-ended" hidden><div><b>Session ended</b> <span class="muted wp-ended-code"></span></div><button class="btn sm primary" data-wp="resume">Resume</button></div>
+    </div>`;
+  },
+  emptyNode() {
+    const n = this.running().length;
+    const d = document.createElement('div'); d.className = 'ws-empty card flat';
+    d.innerHTML = `<div><b>Nothing in the workspace yet.</b><div class="muted" style="margin-top:6px;max-width:460px">Add a running session to watch and drive it here, or start a new one. Open several across different accounts to run them side by side.</div></div>${n ? `<button class="btn" data-ws-addall>Add ${n} running session${n === 1 ? '' : 's'}</button>` : `<button class="btn primary" data-ws-new>New session</button>`}`;
+    return d;
+  },
+  makeNode(cs) { const d = document.createElement('div'); d.innerHTML = this.paneHtml(cs).trim(); return d.firstElementChild; },
+  renderGrid() {
+    this.grid.innerHTML = '';
+    if (!this.order.length) { this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); this.rootEl.classList.remove('focus'); return; }
+    this.grid.classList.remove('is-empty'); this.applyCols();
+    for (const cs of this.order) { const node = this.makeNode(cs); this.grid.appendChild(node); const alive = !!(state?.sessions || []).find(x => x.cs === cs && x.alive); const pane = new WsPane(cs, node, !alive); this.panes.set(cs, pane); pane.mount(); }
+    this.rootEl.classList.toggle('focus', !!this.focus); this.refreshAll(); this.fitAll();
+  },
+  addPane(cs) {
+    if (this.panes.has(cs)) return;
+    if (!this.order.length) { this.grid.innerHTML = ''; this.grid.classList.remove('is-empty'); }
+    this.order.push(cs); this.save(); this.applyCols();
+    const node = this.makeNode(cs); this.grid.appendChild(node);
+    const alive = !!(state?.sessions || []).find(x => x.cs === cs && x.alive); const pane = new WsPane(cs, node, !alive); this.panes.set(cs, pane); pane.mount();
+    this.refreshBar(); this.refreshPane(cs); this.fitAll();
+  },
+  addAll() { for (const s of this.running()) if (!this.panes.has(s.cs)) this.addPane(s.cs); },
+  removePane(cs) {
+    const pane = this.panes.get(cs); if (pane) { pane.dispose(); pane.node.remove(); this.panes.delete(cs); }
+    this.order = this.order.filter(x => x !== cs); this.save();
+    if (this.focus === cs) { this.focus = null; this.rootEl.classList.remove('focus'); }
+    if (!this.order.length) { this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); } else this.applyCols();
+    this.refreshBar(); this.fitAll();
+  },
+  setLayout(l) { this.layout = l; this.save(); this.applyCols(); this.refreshBar(); this.fitAll(); },
+  setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.refreshBar(); this.fitAll(); },
+  paneAction(action, cs) {
+    if (action === 'max') return this.setFocus(this.focus === cs ? null : cs);
+    if (action === 'close') return this.removePane(cs);
+    if (action === 'pop') return post(`/api/sessions/${encodeURIComponent(cs)}/open-terminal`).then(() => toast('Opened in Terminal')).catch(() => {});
+    if (action === 'handoff') return post(`/api/sessions/${encodeURIComponent(cs)}/handoff`, { toSeat: null }).then(j => toast(j.queued ? `Queued → ${j.to}` : `→ ${j.to}`)).catch(() => {});
+    if (action === 'resume') return post(`/api/sessions/${encodeURIComponent(cs)}/restore`, {}).then(() => { toast('Resuming…'); const pane = this.panes.get(cs); if (pane) { const o = pane.node.querySelector('.wp-ended'); if (o) o.hidden = true; pane.connect(); } setTimeout(load, 500); }).catch(() => {});
+  },
+  refreshPane(cs) {
+    const pane = this.panes.get(cs); if (!pane) return; const node = pane.node;
+    const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
+    node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '');
+    const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
+    const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
+    const se = node.querySelector('.wp-seat'); if (se) se.innerHTML = `<span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s?.seat || '?')}${p != null ? ` ${p}%` : ''}`;
+    const mx = node.querySelector('[data-wp="max"]'); if (mx) mx.textContent = this.focus === cs ? '❏' : '⤢';
+    if (s && !s.alive && !pane.ended) pane.markEnded();
+  },
+  refreshAll() { for (const cs of this.order) this.refreshPane(cs); },
+  fitAll() { requestAnimationFrame(() => this.panes.forEach(p => p.fitNow())); setTimeout(() => this.panes.forEach(p => p.fitNow()), 280); },
+  update() { if (!this.built) return; const sig = this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + (this.focus || ''); if (sig !== this.barSig) this.refreshBar(); this.refreshAll(); },
+  teardown() { this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
+};
+window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) wsCtl.fitAll(); });
