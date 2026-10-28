@@ -226,6 +226,22 @@ function seatByConfigDir(dir) {
   return cfg.seats.find(s => path.resolve(s.configDir) === norm) || null;
 }
 function refreshUsage() { const out = {}; for (const s of cfg.seats) { const u = readUsage(s); out[s.name] = u; recordPct(s.name, u); } usageCache = out; return out; }
+// Read live git status for each running session's folder, cached on the session (s.git).
+function refreshGit() {
+  for (const s of sessions.values()) {
+    if (s.kind !== 'claude' || !s.alive || !s.cwd) continue;
+    execFile('git', ['-C', s.cwd, 'status', '--porcelain=v1', '--branch'], { timeout: 4000, maxBuffer: 1 << 20 }, (err, stdout) => {
+      if (err) { s.git = null; return; } // not a repo, or git unavailable
+      const lines = String(stdout).split('\n'); const head = lines[0] || '';
+      let branch = null, ahead = 0, behind = 0;
+      if (/\(no branch\)/.test(head)) branch = 'detached';
+      else { const m = head.match(/^## (?:No commits yet on )?([^ .]+)/); if (m) branch = m[1]; }
+      const am = head.match(/ahead (\d+)/); if (am) ahead = +am[1];
+      const bm = head.match(/behind (\d+)/); if (bm) behind = +bm[1];
+      s.git = { branch, dirty: lines.slice(1).some(l => l.trim() !== ''), ahead, behind };
+    });
+  }
+}
 const OUTSIDE_STALE_MS = Number(process.env.COCKPIT_OUTSIDE_STALE_MS) || 20 * 60000; // an outside session silent this long is treated as gone
 function isLiveClaude(s, now = Date.now()) {
   if (s.kind !== 'claude' || !s.alive) return false;
@@ -285,7 +301,7 @@ function newSession({ cs, kind = 'claude', cwd, seat, name, managed = true, sess
   const s = {
     cs: id, kind, sessionId: sessionId || crypto.randomUUID(), name: name || null, cwd: cwd || null, seat: seat || null, managed,
     status: 'starting', alive: false, pid: null, resume, extra, startedAt: Date.now(), lastActivity: Date.now(), turns: 0, handoffs: [],
-    lastPrompt: null, lastAssistant: null, handoff: null, pendingHandoff: null, transcriptPath: null, endedAt: null, exitCode: null, source: null,
+    lastPrompt: null, lastAssistant: null, handoff: null, pendingHandoff: null, transcriptPath: null, endedAt: null, exitCode: null, source: null, git: null,
   };
   sessions.set(id, s);
   schedulePersist();
@@ -699,6 +715,7 @@ function poll() {
   try {
     cfg = loadConfig();
     refreshUsage();
+    refreshGit();
     for (const s of sessions.values()) { if (s.alive && s.transcriptPath) accountTokens(s); if (s.managed && s.status === 'idle') evaluate(s, { trigger: 'poll' }); }
     processJobs();
     for (const [name, u] of Object.entries(usageCache)) {
