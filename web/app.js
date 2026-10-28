@@ -142,7 +142,7 @@ function vOverview() {
     : `<div class="card flat attn-clear"><span class="ok">●</span> All clear. Nothing needs you right now.</div>`;
   const runHtml = running.length
     ? `<div class="sessgrid">${running.map(s => `<div class="sesscard">
-        <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span>${isStalled(s) ? '<span class="badge warn">stalled?</span>' : ''}</div>
+        <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span>${s.worktree ? '<span class="badge" title="isolated git worktree">worktree</span>' : ''}${isStalled(s) ? '<span class="badge warn">stalled?</span>' : ''}</div>
         <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div>
         <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
       </div>`).join('')}</div>`
@@ -216,7 +216,7 @@ function sessionRow(s) {
   else if (s.managed && s.alive) actions = `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open in Terminal</button><button class="btn sm" data-act="web" data-cs="${esc(s.cs)}">View</button><select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(s.seat)}</select><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`;
   else if (s.managed && !s.alive) actions = `<select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(null)}</select><button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume in Terminal</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Forget</button>`;
   return `<tr>
-    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
+    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}${s.worktree ? ' <span class="badge" title="isolated git worktree">worktree</span>' : ''}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
     <td>${esc(s.seat || '?')}${s.handoffs?.length ? `<div class="tiny muted">was ${esc(s.handoffs[s.handoffs.length - 1].from)}</div>` : ''}</td>
     <td><span class="dot ${esc(s.status)}"></span>${esc(s.status.replace('_', ' '))}${s.pendingHandoff ? ` <span class="badge warn">→ ${esc(s.pendingHandoff.to)} queued</span>` : ''}${s.viewers ? `<div class="tiny muted">${s.viewers} window${s.viewers === 1 ? '' : 's'} open</div>` : ''}</td>
     <td class="r">${s.turns ?? 0}</td><td class="r">${s.handoffs?.length ?? 0}</td>
@@ -438,7 +438,7 @@ let lastSig = null, lastRenderedView = null;
 // entrance motion play only when something actually changed, never on every poll.
 function renderSig() {
   const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt, s.usage?.fiveHour?.assumedReset, s.probe?.lastResult ? !!s.probe.lastResult.ok : 2]);
-  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff, isStalled(s), s.git && [s.git.branch, s.git.dirty, s.git.ahead, s.git.behind].join(':')]);
+  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff, isStalled(s), s.git && [s.git.branch, s.git.dirty, s.git.ahead, s.git.behind].join(':'), !!s.worktree]);
   const ev = (state?.events || [])[0]?.at;
   const base = { view, dirty: [...dirtyForms], seats, sess, ev, probing: state?.probing, jobs: (state?.jobs || []).map(j => [j.id, j.status, j.at]),
     cfg: state?.config && [state.config.handoff?.mode, state.config.handoff?.thresholdPct, state.config.notifications, state.config.autoCheckMin] };
@@ -564,7 +564,7 @@ function closeSheet() { sheet.hidden = true; }
 $('#btnNew').onclick = openSheet; $('#sheetClose').onclick = closeSheet;
 sheet.addEventListener('click', ev => { if (ev.target === sheet) closeSheet(); });
 window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !sheet.hidden) closeSheet(); if (ev.key === 'n' && !sheet.hidden === false && !/input|select|textarea/i.test(document.activeElement?.tagName || '')) openSheet(); });
-const nsBody = () => ({ cwd: nsForm.cwd.value.trim(), seat: nsForm.seat.value || null, name: nsForm.name.value.trim() || null, extra: nsForm.extra.value.trim() ? nsForm.extra.value.trim().split(/\s+/) : [], prompt: nsForm.prompt.value.trim() || null });
+const nsBody = () => ({ cwd: nsForm.cwd.value.trim(), seat: nsForm.seat.value || null, name: nsForm.name.value.trim() || null, extra: nsForm.extra.value.trim() ? nsForm.extra.value.trim().split(/\s+/) : [], prompt: nsForm.prompt.value.trim() || null, worktree: !!nsForm.worktree?.checked, branch: (nsForm.branch?.value || '').trim() || null });
 function nsWhenAt() {
   const v = nsForm.when.value;
   if (v === 'now') return null;
@@ -581,6 +581,7 @@ async function nsSubmit(where) {
 nsForm.addEventListener('submit', ev => { ev.preventDefault(); nsSubmit('terminal'); });
 $('#nsBrowser').onclick = () => nsSubmit('browser');
 nsForm.when && nsForm.when.addEventListener('change', () => { const sched = nsForm.when.value !== 'now'; $('#nsSubmit').textContent = sched ? 'Schedule' : 'Open in Terminal'; $('#nsBrowser').style.display = sched ? 'none' : ''; });
+nsForm.worktree && nsForm.worktree.addEventListener('change', () => { const w = $('#nsBranchWrap'); if (w) w.style.display = nsForm.worktree.checked ? '' : 'none'; });
 $('#btnCheckAll').onclick = async () => { await post('/api/probe-all'); toast('Checking every idle seat, a few seconds each'); load(); };
 
 /* data */

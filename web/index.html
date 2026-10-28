@@ -47,6 +47,8 @@
       <label class="field"><span>Name</span><input name="name" placeholder="optional"></label>
     </div>
     <label class="field"><span>Extra Claude Code flags</span><input name="extra" placeholder="--model opus" autocomplete="off"></label>
+    <label class="field inline"><input type="checkbox" name="worktree" id="nsWorktree"><span>Run in an isolated git worktree, so parallel sessions on the same repo never collide</span></label>
+    <label class="field" id="nsBranchWrap" style="display:none"><span>New branch <span class="muted">(optional; blank checks out the current HEAD)</span></span><input name="branch" placeholder="e.g. feature/payments" autocomplete="off"></label>
     <div class="field-row">
       <label class="field"><span>Start</span><select name="when" id="nsWhen"><option value="now">Now</option><option value="3600000">In 1 hour</option><option value="7200000">In 2 hours</option><option value="14400000">In 4 hours</option><option value="reset">At the freshest seat's next reset</option></select></label>
       <label class="field"><span>Initial task <span class="muted">(optional — runs on start)</span></span><input name="prompt" placeholder="e.g. continue the refactor" autocomplete="off"></label>
