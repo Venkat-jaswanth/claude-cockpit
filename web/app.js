@@ -1,9 +1,10 @@
 // Claude Cockpit dashboard. Vanilla JS, hash-routed views, polling the local daemon.
 const $ = s => document.querySelector(s);
 const VIEWS = {
-  overview: ['Overview', 'Seats, running sessions and today at a glance'],
+  overview: ['Overview', 'What needs you, what\'s running, and today at a glance'],
   seats: ['Seats', 'One isolated Claude Code login per account'],
   sessions: ['Sessions', 'Running now, or waiting to be resumed'],
+  workspace: ['Workspace', 'Watch and drive several live sessions side by side'],
   library: ['Projects', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
   usage: ['Usage', 'Tokens booked to the seat that ran each turn; cost is Claude Code\'s own estimate'],
   activity: ['Activity', 'What the daemon did and why'],
@@ -66,42 +67,84 @@ function seatBadges(s) {
 }
 
 /* ---------- views ---------- */
+// The seat to reach for right now: logged in, enabled, most 5-hour headroom (lowest pct).
+// Seats with no reading yet rank last, since we can't vouch for their headroom.
+function bestSeat() {
+  const cand = (state.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
+  if (!cand.length) return null;
+  return cand.slice().sort((a, b) => (seatPct(a) ?? 999) - (seatPct(b) ?? 999))[0];
+}
+// The attention queue: one ranked list of everything that can act on, drawn from state.
+// Severity order: bad (blocking) > warn (needs a decision) > go (ready for you) > info.
+function attnItems() {
+  const items = [], push = (sev, ico, title, sub, action) => items.push({ sev, ico, title, sub, action });
+  // bad: a seat you can't use at all
+  for (const s of state.seats) if (!s.disabled && s.usage && !s.usage.loggedIn)
+    push('bad', '!', `${esc(s.name)} is not logged in`, 'This seat cannot run or report usage until you sign in.', `<button class="btn sm" data-act="login" data-seat="${esc(s.name)}">Log in</button>`);
+  // warn: sessions dropped by a daemon restart
+  for (const s of state.sessions.filter(x => x.status === 'lost'))
+    push('warn', '↻', `${esc(s.name || s.cs)} stopped when the daemon restarted`, `${esc(short(s.cwd || ''))} · was on ${esc(s.seat || '?')}`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button>`);
+  // warn: a usage check that failed
+  for (const s of state.seats) if (s.probe?.lastResult && !s.probe.lastResult.ok && !s.probe.running)
+    push('warn', '?', `Could not read usage for ${esc(s.name)}`, esc(s.probe.lastResult.reason || 'the check did not finish'), `<button class="btn sm" data-act="probe" data-seat="${esc(s.name)}">Try again</button>`);
+  // warn: a seat almost out of its 5-hour window
+  for (const s of state.seats) { const p = seatPct(s); if (!s.disabled && s.usage?.loggedIn && p != null && p >= 85 && !s.usage.fiveHour?.assumedReset)
+    push('warn', '▲', `${esc(s.name)} is nearly out (${p}%)`, resetsText(s.usage.fiveHour?.resetsAt), ''); }
+  // warn: nowhere fresh left to go
+  const usable = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
+  if (usable.length >= 2 && usable.every(s => { const p = seatPct(s); return p != null && p >= 80; }))
+    push('warn', '◆', 'Every seat is running low', 'All logged-in seats are past 80%. Consider pausing, or waiting for the next reset.', '');
+  // go: a session finished its turn and is waiting on you (the key "needs input" signal)
+  const idle = state.sessions.filter(s => s.alive && s.managed && s.kind === 'claude' && s.status === 'idle' && !s.pendingHandoff).sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
+  for (const s of idle)
+    push('go', '✓', `${esc(s.name || s.cs)} is ready for you`, `Finished its turn on ${esc(s.seat || '?')} · ${ago(s.lastActivity)}`, `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button>`);
+  // info: a queued handoff waiting for the turn to end
+  for (const s of state.sessions.filter(x => x.pendingHandoff))
+    push('', '→', `${esc(s.name || s.cs)}: handoff to ${esc(s.pendingHandoff.to)} queued`, 'Will move when the current turn ends.', '');
+  // info: a scheduled run about to fire
+  for (const j of (state.jobs || []).filter(j => j.status === 'queued' && j.at && j.at - Date.now() < 15 * 60e3))
+    push('', '◷', `Scheduled: ${esc(j.name || j.prompt || 'session')} starts ${until(j.at) ? 'in ' + until(j.at) : 'now'}`, `${esc(short(j.cwd || ''))}${j.seat ? ' · ' + esc(j.seat) : ' · best seat'}`, `<button class="btn sm ghost" data-cancel="${esc(j.id)}">Cancel</button>`);
+  const rank = { bad: 0, warn: 1, go: 2, '': 3 };
+  return items.sort((a, b) => rank[a.sev] - rank[b.sev]);
+}
 function vOverview() {
   if (!state.seats.length) return onboarding();
   const running = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed);
   const outside = state.sessions.filter(s => s.alive && s.kind === 'claude' && !s.managed);
-  const lost = state.sessions.filter(s => s.status === 'lost');
-  const seatsHtml = state.seats.map(s => {
-    const p = seatPct(s); const fh = s.usage?.fiveHour || {};
-    return `<div class="card seat ${s.disabled ? 'disabled' : ''}" style="padding:14px 16px">
-      <div style="display:flex;gap:14px;align-items:center">
-        <div class="ring" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})" data-label="${p == null ? '–' : p + '%'}"></div>
-        <div class="grow" style="min-width:0"><div class="name">${esc(s.name)}</div><div class="who">${esc(s.usage?.email || s.email || '')}</div><div class="tiny muted">${resetsText(fh.resetsAt)}</div></div>
-      </div>
-      <div class="meta">${seatBadges(s)}</div>
-    </div>`;
-  }).join('');
-  const sessionsHtml = running.length ? running.map(s => `<div class="row">
-      <span class="dot ${esc(s.status)}"></span>
-      <div class="grow"><div class="title">${esc(s.name || s.cs)}</div><div class="sub">${esc(short(s.cwd))} · seat ${esc(s.seat)} · ${s.turns} turns · ${ago(s.lastActivity)}</div></div>
-      <div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div>
-    </div>`).join('') : '<div class="empty">Nothing running. Press <b>New session</b>, or resume one from the Library.</div>';
   const t = usage?.today?.total;
+  const best = bestSeat(); const bp = best ? seatPct(best) : null;
+  const chip = s => { const p = seatPct(s); return `<div class="seatchip ${s.disabled ? 'off' : ''}"><span class="ring sm" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})" data-label="${p == null ? '–' : p + '%'}"></span><span class="sc-name">${esc(s.name)}</span></div>`; };
+  const attn = attnItems();
+  const attnShown = attn.slice(0, 10), attnMore = attn.length - attnShown.length;
+  const attnHtml = attn.length
+    ? `<div class="attn">${attnShown.map(a => `<div class="attn-item ${a.sev}"><div class="ai-ico">${a.ico}</div><div class="grow"><div class="ai-title">${a.title}</div><div class="ai-sub">${a.sub}</div></div><div class="actions">${a.action}</div></div>`).join('')}${attnMore > 0 ? `<div class="attn-more tiny muted">+${attnMore} more</div>` : ''}</div>`
+    : `<div class="card flat attn-clear"><span class="ok">●</span> All clear. Nothing needs you right now.</div>`;
+  const runHtml = running.length
+    ? `<div class="sessgrid">${running.map(s => `<div class="sesscard">
+        <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span></div>
+        <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}</div>
+        <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
+      </div>`).join('')}</div>`
+    : `<div class="card flat empty big">Nothing running yet. Press <b>New session</b> to start one, or resume a conversation from <a href="#/library">Projects</a>.</div>`;
+  const outsideNote = outside.length ? `<div class="tiny muted" style="margin-top:10px">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit (started with plain <code>claude</code>). <a href="#/sessions">Show</a></div>` : '';
+  const budget = usage?.budgetMonthlyUSD || 0, monthCost = usage?.month?.total?.cost || 0;
+  const budgetMini = budget > 0 ? `<div style="margin-top:14px">${bar('This month', Math.min(100, Math.round(monthCost / budget * 100)), `${fmtCost(monthCost)} of ${fmtCost(budget)}`, monthCost / budget >= 1 ? 'bad' : monthCost / budget >= 0.8 ? 'warn' : 'ok')}</div>` : '';
   return `
-    <div class="section"><div class="card-head"><h2>Seats</h2><a href="#/seats" class="tiny">Manage</a></div><div class="grid auto">${seatsHtml}</div></div>
+    <div class="section"><div class="card ov-status">
+      <div class="ov-sum"><b>${state.seats.length}</b> seat${state.seats.length === 1 ? '' : 's'} · <b>${running.length}</b> running${best ? ` <span class="ov-best"><span class="ring sm" style="--p:${bp ?? 0};--c:var(--${lvl(bp) === 'unknown' ? 'faint' : lvl(bp)})" data-label="${bp == null ? '–' : bp + '%'}"></span>best now: ${esc(best.name)}</span>` : ''}</div>
+      <div class="seatchips">${state.seats.map(chip).join('')}<a href="#/seats" class="btn sm ghost">Manage</a></div>
+    </div></div>
+    <div class="section"><div class="card-head"><h2>Needs you${attn.length ? ` <span class="badge warn">${attn.length}</span>` : ''}</h2></div>${attnHtml}</div>
+    <div class="section"><div class="card-head"><h2>Running now <span class="badge">${running.length}</span></h2><a href="#/sessions" class="tiny">All sessions</a></div>${runHtml}${outsideNote}</div>
     <div class="grid cols-2">
-      <div class="card"><div class="card-head"><h2>Running sessions <span class="badge">${running.length}</span></h2><a href="#/sessions" class="tiny">All sessions</a></div><div class="list" id="ovSessions">${sessionsHtml}</div>
-        ${lost.length ? `<div class="row" style="border-top:1px solid var(--line);margin-top:4px"><span class="dot lost"></span><div class="grow"><div class="title">${lost.length} session${lost.length === 1 ? '' : 's'} stopped when the daemon restarted</div><div class="sub">Resume them from Sessions</div></div><a href="#/sessions" class="btn sm">Show</a></div>` : ''}
-        ${outside.length ? `<div class="row" style="border-top:1px solid var(--line);margin-top:4px"><span class="dot idle"></span><div class="grow"><div class="title">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit</div><div class="sub">Started with plain <code>claude</code>, so they're visible but can't be attached or handed off</div></div><a href="#/sessions" class="btn sm">Show</a></div>` : ''}
+      <div class="card flat"><div class="card-head"><h2>Today</h2><a href="#/usage" class="tiny">Usage</a></div>
+        <div class="statrow">
+          <div class="stat"><div class="s-val" data-count="${tot(t)}" data-countfmt="tok">${fmtTok(tot(t))}</div><div class="s-lbl">tokens today</div></div>
+          <div class="stat"><div class="s-val" data-count="${t?.cost || 0}" data-countfmt="cost">${fmtCost(t?.cost)}</div><div class="s-lbl">cost today</div></div>
+          <div class="stat"><div class="s-val" data-count="${tot(usage?.week?.total)}" data-countfmt="tok">${fmtTok(tot(usage?.week?.total))}</div><div class="s-lbl">7-day tokens</div></div>
+        </div>${budgetMini}
       </div>
-      <div style="display:grid;gap:14px;align-content:start">
-        <div class="grid cols-3">
-          <div class="card kpi"><div class="lbl">Today</div><div class="val">${fmtTok(tot(t))}<small>tokens</small></div><div class="sub">${t?.turns || 0} turns · ${fmtCost(t?.cost)}</div></div>
-          <div class="card kpi"><div class="lbl">7 days</div><div class="val">${fmtTok(tot(usage?.week?.total))}<small>tokens</small></div><div class="sub">${usage?.week?.total?.turns || 0} turns · ${fmtCost(usage?.week?.total?.cost)}</div></div>
-          <div class="card kpi"><div class="lbl">Stored</div><div class="val">${library.length}<small>sessions</small></div><div class="sub">${fmtTok(library.reduce((a, r) => a + tot(r.tokens), 0))} tokens all time</div></div>
-        </div>
-        <div class="card"><div class="card-head"><h2>Latest activity</h2><a href="#/activity" class="tiny">All</a></div><div class="events">${events(state.events.slice(0, 6))}</div></div>
-      </div>
+      <div class="card flat"><div class="card-head"><h2>Latest activity</h2><a href="#/activity" class="tiny">All</a></div><div class="events">${events(state.events.slice(0, 6))}</div></div>
     </div>`;
 }
 function onboarding() {
@@ -373,15 +416,29 @@ let lastSig = null, lastRenderedView = null;
 // rebuilding #content, so the 3s poll no longer flickers the page or steals focus, and it lets
 // entrance motion play only when something actually changed, never on every poll.
 function renderSig() {
-  const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt]);
+  const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt, s.usage?.fiveHour?.assumedReset, s.probe?.lastResult ? !!s.probe.lastResult.ok : 2]);
   const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff]);
   const ev = (state?.events || [])[0]?.at;
   const base = { view, dirty: [...dirtyForms], seats, sess, ev, probing: state?.probing, jobs: (state?.jobs || []).map(j => [j.id, j.status, j.at]),
     cfg: state?.config && [state.config.handoff?.mode, state.config.handoff?.thresholdPct, state.config.notifications, state.config.autoCheckMin] };
   if (view === 'usage') base.usage = usage && [usage.today?.total, usage.week?.total, usage.month?.total, usage.budgetMonthlyUSD, usage.all?.total, (usage.byDay || []).map(d => d.input + d.output + d.cacheRead + d.cacheWrite)];
   if (view === 'library') base.lib = { f: [libFilter, libGroup, libStar, libTag, showArchived], sel: selected.size, deep: deepResults ? deepResults.length : -1, dq: deepQuery, g: openGroups, rows: library.map(r => [r.sessionId, r.title, r.star, (r.tags || []).join(','), r.projectName, r.archived, Math.round(tot(r.tokens) / 1e5)]) };
-  if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total)];
+  if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total), usage && (usage.today?.total?.cost || 0), usage && tot(usage.week?.total), usage && (usage.month?.total?.cost || 0), usage && usage.budgetMonthlyUSD];
   return JSON.stringify(base);
+}
+// Count a number up to its target on view entrance. Elements opt in with data-count (raw value)
+// and data-countfmt (tok | cost | int). Skipped for reduced-motion and the nomotion test flag.
+function animateCounts(scope) {
+  if (/\bnomotion\b/.test(location.search)) return;
+  try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch {}
+  scope.querySelectorAll('[data-count]').forEach(el => {
+    const to = Number(el.dataset.count) || 0; if (!to) return;
+    const fmt = el.dataset.countfmt || 'int';
+    const fmtv = v => fmt === 'tok' ? fmtTok(v) : fmt === 'cost' ? fmtCost(v) : String(Math.round(v));
+    const t0 = performance.now(), dur = 560;
+    const tick = now => { const p = Math.min(1, (now - t0) / dur); el.textContent = fmtv(to * (1 - Math.pow(1 - p, 3))); if (p < 1) requestAnimationFrame(tick); else el.textContent = fmtv(to); };
+    requestAnimationFrame(tick);
+  });
 }
 function render() {
   if (!state) return;
@@ -390,6 +447,7 @@ function render() {
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === view));
   const running = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed).length;
   $('#cSeats').textContent = state.seats.length || ''; $('#cSessions').textContent = running || ''; $('#cLibrary').textContent = library.length || '';
+  const attnN = state.seats.length ? attnItems().length : 0; const cAttn = $('#cAttn'); if (cAttn) { cAttn.textContent = attnN || ''; cAttn.className = 'count' + (attnN ? ' attn' : ''); }
   $('#brandSub').textContent = `${state.seats.length} seat${state.seats.length === 1 ? '' : 's'} · ${running} running`;
   $('#daemonLine').textContent = `daemon up ${Math.round(state.uptime / 60000)} min · v${state.version}`;
   $('#btnCheckAll').disabled = !!state.probing; $('#btnCheckAll').textContent = state.probing ? 'Checking…' : 'Check usage';
@@ -406,6 +464,7 @@ function render() {
   if (viewChanged && !/\bnomotion\b/.test(location.search)) { el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter'); }
   if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   wire(el);
+  if (viewChanged) animateCounts(el);
 }
 function wire(el) {
   el.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
