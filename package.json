@@ -8,7 +8,7 @@
   },
   "scripts": {
     "daemon": "node src/daemon.js",
-    "test": "node test/e2e.js"
+    "test": "node test/unit.js && node test/e2e.js"
   },
   "keywords": [
     "claude",
