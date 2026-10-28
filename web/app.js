@@ -85,6 +85,9 @@ function attnItems() {
   // bad: a seat you can't use at all
   for (const s of state.seats) if (!s.disabled && s.usage && !s.usage.loggedIn)
     push('bad', '!', `${esc(s.name)} is not logged in`, 'This seat cannot run or report usage until you sign in.', `<button class="btn sm" data-act="login" data-seat="${esc(s.name)}">Log in</button>`);
+  // bad: a session whose process exited unexpectedly
+  for (const s of state.sessions.filter(x => x.status === 'crashed'))
+    push('bad', '⚠', `${esc(s.name || s.cs)} crashed`, `Exited unexpectedly on ${esc(s.seat || '?')}${s.exitCode ? ` (code ${s.exitCode})` : ''}. Resume to pick up where it left off.`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button>`);
   // warn: sessions dropped by a daemon restart
   for (const s of state.sessions.filter(x => x.status === 'lost'))
     push('warn', '↻', `${esc(s.name || s.cs)} stopped when the daemon restarted`, `${esc(short(s.cwd || ''))} · was on ${esc(s.seat || '?')}`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button>`);

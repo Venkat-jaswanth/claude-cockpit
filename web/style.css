@@ -72,7 +72,7 @@ select.sel.sm { padding: 4px 7px; font-size: 12.5px; border-radius: 7px; max-wid
 .badge.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: color-mix(in srgb, var(--bad) 75%, var(--text)); }
 .badge.accent { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); vertical-align: middle; margin-right: 6px; }
-.dot.idle { background: var(--ok); } .dot.busy { background: var(--accent); animation: pulse 1.2s infinite; } .dot.starting, .dot.resuming, .dot.handing_off { background: var(--warn); } .dot.lost { background: var(--bad); } .dot.login { background: var(--accent); }
+.dot.idle { background: var(--ok); } .dot.busy { background: var(--accent); animation: pulse 1.2s infinite; } .dot.starting, .dot.resuming, .dot.handing_off { background: var(--warn); } .dot.lost, .dot.crashed { background: var(--bad); } .dot.login { background: var(--accent); }
 @keyframes pulse { 50% { opacity: .35; } }
 
 /* layout pieces */
