@@ -42,6 +42,9 @@ const TERM_THEMES = {
 };
 function termPrefs() { try { return { theme: 'Midnight', fontSize: 13, cursor: 'block', ...JSON.parse(localStorage.getItem('cockpit.term') || '{}') }; } catch { return { theme: 'Midnight', fontSize: 13, cursor: 'block' }; } }
 function termXtermOptions() { const p = termPrefs(); return { cursorBlink: true, cursorStyle: p.cursor || 'block', fontSize: Number(p.fontSize) || 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: TERM_THEMES[p.theme] || TERM_THEMES.Midnight, scrollback: 4000, allowProposedApi: true }; }
+// Saved reusable commands/prompts (client-side), surfaced in Settings and the command palette.
+function cmds() { try { return JSON.parse(localStorage.getItem('cockpit.cmds') || '[]'); } catch { return []; } }
+function saveCmds(list) { try { localStorage.setItem('cockpit.cmds', JSON.stringify(list)); } catch {} }
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = p => (p || '').replace(/^\/Users\/[^/]+/, '~');
@@ -399,7 +402,12 @@ function vSettings() {
     <label class="field"><span>Cursor</span><select name="termCursor">${['block', 'bar', 'underline'].map(cu => `<option value="${cu}" ${tp.cursor === cu ? 'selected' : ''}>${cu[0].toUpperCase() + cu.slice(1)}</option>`).join('')}</select></label>
     <h3 style="margin-top:8px">Notifications</h3>
     <label class="field inline"><input name="notifications" type="checkbox" ${c.notifications ? 'checked' : ''}><span>macOS notifications for handoffs, limits and recommendations</span></label>
-    <div><button class="btn primary" type="submit">Save</button></div></form>`;
+    <div><button class="btn primary" type="submit">Save</button></div></form>
+    <div class="card" style="margin-top:14px"><div class="card-head"><h2>Custom commands</h2></div>
+      <p class="muted tiny" style="margin:0 0 10px">Reusable prompts you run often. Start a new session prewired with one, or run it from the command palette (⌘K).</p>
+      <div class="list">${cmds().map((cc, i) => `<div class="row"><div class="grow" style="min-width:0"><div class="title">${esc(cc.name)}</div><div class="sub mono">${esc(cc.text)}</div></div><div class="actions"><button class="btn sm" data-cmd-run="${i}">New session</button><button class="btn sm danger" data-cmd-del="${i}">Delete</button></div></div>`).join('') || '<div class="empty">No commands yet. Add one below.</div>'}</div>
+      <div class="inline-form" style="margin-top:10px"><input id="cmdName" placeholder="name, e.g. run tests"><input id="cmdText" placeholder="prompt, e.g. run the full test suite and fix failures"><button class="btn" id="cmdAdd" type="button">Add</button></div>
+    </div>`;
 }
 function vHelp() {
   return `<div class="grid cols-2"><div class="card prose"><h3>How it works</h3><ol>
@@ -577,6 +585,9 @@ function wire(el) {
     toast(name.trim() ? `Moved to "${name.trim()}"` : 'Back to auto-grouping');
     await loadSlow();
   });
+  el.querySelectorAll('[data-cmd-del]').forEach(b => b.onclick = () => { const l = cmds(); l.splice(+b.dataset.cmdDel, 1); saveCmds(l); render(); });
+  el.querySelectorAll('[data-cmd-run]').forEach(b => b.onclick = () => { const c = cmds()[+b.dataset.cmdRun]; if (c) { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = c.text; nsForm.prompt.focus(); } }, 60); } });
+  const cmdAdd = el.querySelector('#cmdAdd'); if (cmdAdd) cmdAdd.onclick = () => { const n = el.querySelector('#cmdName').value.trim(), t = el.querySelector('#cmdText').value.trim(); if (!n || !t) return; const l = cmds(); l.push({ name: n, text: t }); saveCmds(l); render(); };
   const settings = el.querySelector('#settings');
   if (settings) {
     settings.addEventListener('input', () => dirtyForms.add('settings'));
@@ -668,6 +679,7 @@ setInterval(load, 3000); setInterval(loadSlow, 15000);
       c.push({ label: `Stop · ${s.name || s.cs}`, hint: 'session', run: () => post(`/api/sessions/${s.cs}/stop`).then(() => toast('Stopped')) });
     }
     for (const r of (library || []).slice(0, 40)) c.push({ label: `Resume · ${r.title}`, hint: `${r.projectName || ''}`, run: () => startSession({ resumeId: r.sessionId, cwd: r.cwd }, 'terminal') });
+    for (const cm of cmds()) c.push({ label: `Run: ${cm.name}`, hint: 'command', run: () => { openSheet(); setTimeout(() => { if (nsForm.prompt) nsForm.prompt.value = cm.text; }, 60); } });
     return c;
   }
   // subsequence fuzzy score: all query chars appear in order; prefer contiguous + early matches
