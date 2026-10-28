@@ -34,6 +34,15 @@ const seatPct = s => s?.usage?.fiveHour?.pct ?? null;
 // stuck. lastActivity only moves on hook events, so this measures turn-start age: keep it generous.
 const STALL_MIN = 25;
 const isStalled = s => s.alive && s.managed && s.kind === 'claude' && s.status === 'busy' && s.lastActivity && (Date.now() - s.lastActivity) / 60000 >= STALL_MIN;
+// Live git status for a session's folder, when the daemon has read it.
+function gitInline(g) {
+  if (!g || !g.branch) return '';
+  let out = `⎇ ${esc(g.branch)}`;
+  if (g.dirty) out += ' <span class="git-dirty" title="uncommitted changes">●</span>';
+  if (g.ahead) out += ` <span title="commits ahead of upstream">↑${g.ahead}</span>`;
+  if (g.behind) out += ` <span title="commits behind upstream">↓${g.behind}</span>`;
+  return `<span class="git">${out}</span>`;
+}
 
 function toast(msg, kind = '') { const el = document.createElement('div'); el.className = `toast ${kind}`; el.textContent = msg; $('#toasts').appendChild(el); setTimeout(() => el.remove(), 3200); }
 async function post(p, body) {
@@ -134,7 +143,7 @@ function vOverview() {
   const runHtml = running.length
     ? `<div class="sessgrid">${running.map(s => `<div class="sesscard">
         <div class="sc-head"><span class="dot ${esc(s.status)}"></span><span class="sc-name grow">${esc(s.name || s.cs)}</span><span class="badge">${esc(s.seat)}</span>${isStalled(s) ? '<span class="badge warn">stalled?</span>' : ''}</div>
-        <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}</div>
+        <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div>
         <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
       </div>`).join('')}</div>`
     : `<div class="card flat empty big">Nothing running yet. Press <b>New session</b> to start one, or resume a conversation from <a href="#/library">Projects</a>.</div>`;
@@ -207,7 +216,7 @@ function sessionRow(s) {
   else if (s.managed && s.alive) actions = `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open in Terminal</button><button class="btn sm" data-act="web" data-cs="${esc(s.cs)}">View</button><select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(s.seat)}</select><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`;
   else if (s.managed && !s.alive) actions = `<select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(null)}</select><button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume in Terminal</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Forget</button>`;
   return `<tr>
-    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}</div></td>
+    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
     <td>${esc(s.seat || '?')}${s.handoffs?.length ? `<div class="tiny muted">was ${esc(s.handoffs[s.handoffs.length - 1].from)}</div>` : ''}</td>
     <td><span class="dot ${esc(s.status)}"></span>${esc(s.status.replace('_', ' '))}${s.pendingHandoff ? ` <span class="badge warn">→ ${esc(s.pendingHandoff.to)} queued</span>` : ''}${s.viewers ? `<div class="tiny muted">${s.viewers} window${s.viewers === 1 ? '' : 's'} open</div>` : ''}</td>
     <td class="r">${s.turns ?? 0}</td><td class="r">${s.handoffs?.length ?? 0}</td>
@@ -429,7 +438,7 @@ let lastSig = null, lastRenderedView = null;
 // entrance motion play only when something actually changed, never on every poll.
 function renderSig() {
   const seats = (state?.seats || []).map(s => [s.name, s.disabled, s.activeSessions, s.outsideSessions, s.usage?.fiveHour?.pct, s.usage?.loggedIn, !!s.probe?.running, Math.round((s.usage?.weekly || []).reduce((a, w) => a + (w.pct || 0), 0)), s.usage?.fetchedAt, s.usage?.fiveHour?.assumedReset, s.probe?.lastResult ? !!s.probe.lastResult.ok : 2]);
-  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff, isStalled(s)]);
+  const sess = (state?.sessions || []).map(s => [s.cs, s.status, s.seat, s.turns, s.handoffs?.length, s.viewers, s.alive, !!s.pendingHandoff, isStalled(s), s.git && [s.git.branch, s.git.dirty, s.git.ahead, s.git.behind].join(':')]);
   const ev = (state?.events || [])[0]?.at;
   const base = { view, dirty: [...dirtyForms], seats, sess, ev, probing: state?.probing, jobs: (state?.jobs || []).map(j => [j.id, j.status, j.at]),
     cfg: state?.config && [state.config.handoff?.mode, state.config.handoff?.thresholdPct, state.config.notifications, state.config.autoCheckMin] };

@@ -433,6 +433,8 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 .statrow { display: flex; gap: 14px 30px; flex-wrap: wrap; }
 .stat .s-val { font-size: 23px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .stat .s-lbl { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+.git { color: var(--muted); white-space: nowrap; }
+.git-dirty { color: var(--warn); }
 
 @media (max-width: 860px) { .seatchips { margin-left: 0; width: 100%; } }
 
