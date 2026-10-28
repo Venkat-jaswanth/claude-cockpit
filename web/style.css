@@ -470,3 +470,10 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
   .ws-grid { grid-template-columns: 1fr !important; }
   .ws-grid .wp { min-height: 320px; }
 }
+
+/* In-app "Reduced motion" preference (Settings), on top of the OS-level media query */
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important;
+}
+:root[data-motion="reduced"] .view-enter > *, :root[data-motion="reduced"] .toast, :root[data-motion="reduced"] .sheet, :root[data-motion="reduced"] .scrim, :root[data-motion="reduced"] .star.on, :root[data-motion="reduced"] .dot.busy { animation: none !important; }
+:root[data-motion="reduced"] .card:hover, :root[data-motion="reduced"] .seat:hover, :root[data-motion="reduced"] .sesscard:hover, :root[data-motion="reduced"] .btn:active, :root[data-motion="reduced"] .nav a:active { transform: none !important; }

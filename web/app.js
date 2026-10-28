@@ -18,6 +18,9 @@ function saveGroups() { try { localStorage.setItem('cockpit.groups', JSON.string
 function hue(str) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360; return h; }
 function applyTheme(t) { theme = ['light', 'dark'].includes(t) ? t : 'auto'; document.documentElement.dataset.theme = theme === 'auto' ? '' : theme; try { localStorage.setItem('cockpit.theme', theme); } catch {} }
 (() => { let t = new URLSearchParams(location.search).get('theme'); try { t = t || localStorage.getItem('cockpit.theme'); } catch {} applyTheme(t || 'auto'); })();
+let motion = 'full';
+function applyMotion(m) { motion = m === 'reduced' ? 'reduced' : 'full'; document.documentElement.dataset.motion = motion === 'reduced' ? 'reduced' : ''; try { localStorage.setItem('cockpit.motion', motion); } catch {} }
+(() => { let m; try { m = localStorage.getItem('cockpit.motion'); } catch {} applyMotion(m || 'full'); })();
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = p => (p || '').replace(/^\/Users\/[^/]+/, '~');
@@ -368,6 +371,7 @@ function vSettings() {
     <label class="field"><span>Monthly budget (USD) <span class="muted">(0 = off; warns on the Usage page when this month's spend crosses it)</span></span><input name="budgetMonthlyUSD" type="number" min="0" step="1" value="${c.budgetMonthlyUSD || 0}"></label>
     <h3 style="margin-top:8px">Appearance</h3>
     <label class="field"><span>Theme</span><select name="theme"><option value="auto" ${theme === 'auto' ? 'selected' : ''}>Match the system</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Light</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Dark</option></select></label>
+    <label class="field"><span>Motion</span><select name="motion"><option value="full" ${motion === 'full' ? 'selected' : ''}>Full</option><option value="reduced" ${motion === 'reduced' ? 'selected' : ''}>Reduced (fewer animations)</option></select></label>
     <h3 style="margin-top:8px">Notifications</h3>
     <label class="field inline"><input name="notifications" type="checkbox" ${c.notifications ? 'checked' : ''}><span>macOS notifications for handoffs, limits and recommendations</span></label>
     <div><button class="btn primary" type="submit">Save</button></div></form>`;
@@ -551,7 +555,7 @@ function wire(el) {
   const settings = el.querySelector('#settings');
   if (settings) {
     settings.addEventListener('input', () => dirtyForms.add('settings'));
-    settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
+    settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); applyMotion(f.motion.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
   }
 }
 function setView(v) { view = VIEWS[v] ? v : 'overview'; try { localStorage.setItem('cockpit.view', view); } catch {} window.scrollTo(0, 0); render(); }
