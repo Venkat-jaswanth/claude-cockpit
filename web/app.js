@@ -90,6 +90,15 @@ async function startSession(body, where) {
   await openSession(j.cs, where);
   setTimeout(load, 500);
 }
+// One rename, written to BOTH stores so the live session (keyed by cs) and the Library mark
+// (keyed by sessionId) always agree — whichever page you rename from.
+async function renameEverywhere({ cs, sessionId, name }) {
+  const nm = (name || '').trim();
+  if (cs) await post(`/api/sessions/${encodeURIComponent(cs)}/rename`, { name: nm });
+  if (sessionId) await post(`/api/marks/${encodeURIComponent(sessionId)}`, { name: nm });
+  setTimeout(() => { load(); loadSlow(); }, 200);
+  return nm;
+}
 function bar(label, pct, right, cls) {
   const p = pct == null ? 0 : Math.min(100, pct);
   return `<div class="bar"><div class="lbl"><span>${esc(label)}</span><span>${esc(right || '')}</span></div><div class="track"><div class="fill ${cls || lvl(pct)}" style="width:${pct == null ? 100 : p}%"></div></div><span class="pct">${pct == null ? '–' : pct + '%'}</span></div>`;
@@ -315,7 +324,7 @@ function sessionRow(s) {
   else if (s.managed && s.alive) actions = `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open in Terminal</button><button class="btn sm" data-act="web" data-cs="${esc(s.cs)}">View</button><select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(s.seat)}</select><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`;
   else if (s.managed && !s.alive) actions = `<select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(null)}</select><button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume in Terminal</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Forget</button>`;
   return `<tr>
-    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}${s.worktree ? ' <span class="badge" title="isolated git worktree">worktree</span>' : ''}${s.managed ? ` <button class="iconbtn" data-srename="${esc(s.cs)}" data-cur="${esc(s.name || '')}" title="Rename this session">✎</button>` : ''}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
+    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}${s.worktree ? ' <span class="badge" title="isolated git worktree">worktree</span>' : ''}${s.managed ? ` <button class="iconbtn" data-srename="${esc(s.cs)}" data-sid="${esc(s.sessionId || '')}" data-cur="${esc(s.name || '')}" title="Rename this session">✎</button>` : ''}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
     <td>${esc(s.seat || '?')}${s.handoffs?.length ? `<div class="tiny muted">was ${esc(s.handoffs[s.handoffs.length - 1].from)}</div>` : ''}</td>
     <td><span class="dot ${esc(s.status)}"></span>${esc(s.status.replace('_', ' '))}${s.pendingHandoff ? ` <span class="badge warn">→ ${esc(s.pendingHandoff.to)} queued</span>` : ''}${s.viewers ? `<div class="tiny muted">${s.viewers} window${s.viewers === 1 ? '' : 's'} open</div>` : ''}</td>
     <td class="r">${s.turns ?? 0}</td><td class="r">${s.handoffs?.length ?? 0}</td>
@@ -653,8 +662,8 @@ function wire(el) {
   el.querySelectorAll('[data-star]').forEach(b => b.onclick = async () => { await post(`/api/marks/${encodeURIComponent(b.dataset.star)}`, { star: b.dataset.on !== '1' }); await loadSlow(); });
   el.querySelectorAll('[data-untag]').forEach(b => b.onclick = async ev => { ev.stopPropagation(); await post(`/api/marks/${encodeURIComponent(b.dataset.untag)}`, { removeTag: b.dataset.tagval }); await loadSlow(); });
   el.querySelectorAll('[data-addtag]').forEach(b => b.onclick = async () => { const t = prompt('Add a tag (e.g. "release", "bug", "client-x"):'); if (t && t.trim()) { await post(`/api/marks/${encodeURIComponent(b.dataset.addtag)}`, { addTag: t.trim() }); await loadSlow(); } });
-  el.querySelectorAll('[data-rename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to restore the original title):', b.dataset.cur || ''); if (name === null) return; await post(`/api/marks/${encodeURIComponent(b.dataset.rename)}`, { name: name.trim() }); toast(name.trim() ? 'Renamed' : 'Original title restored'); await loadSlow(); });
-  el.querySelectorAll('[data-srename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to use the default):', b.dataset.cur || ''); if (name === null) return; await post(`/api/sessions/${encodeURIComponent(b.dataset.srename)}/rename`, { name: name.trim() }); toast(name.trim() ? 'Renamed' : 'Name cleared'); setTimeout(load, 250); });
+  el.querySelectorAll('[data-rename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to restore the original title):', b.dataset.cur || ''); if (name === null) return; const sid = b.dataset.rename; const live = (state?.sessions || []).find(x => x.sessionId === sid && x.alive); const nm = await renameEverywhere({ cs: live?.cs, sessionId: sid, name }); toast(nm ? 'Renamed' : 'Original title restored'); });
+  el.querySelectorAll('[data-srename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to use the default):', b.dataset.cur || ''); if (name === null) return; const nm = await renameEverywhere({ cs: b.dataset.srename, sessionId: b.dataset.sid, name }); toast(nm ? 'Renamed' : 'Name cleared'); });
   el.querySelectorAll('[data-project]').forEach(b => b.onclick = async () => {
     const existing = [...new Set(library.map(r => r.projectName).filter(Boolean))].sort();
     const hint = existing.length ? '\n\nExisting projects:\n• ' + existing.slice(0, 20).join('\n• ') : '';
@@ -882,9 +891,9 @@ const wsCtl = {
     this.rootEl.addEventListener('dblclick', e => { const nm = e.target.closest('.wp-name'); if (nm) { const cs = nm.closest('.wp')?.dataset.cs; if (cs) this.renamePane(cs); } });
   },
   renamePane(cs) {
-    const name = prompt('Rename this session (leave blank to use the default):', this.sessOf(cs)?.name || '');
+    const s = this.sessOf(cs); const name = prompt('Rename this session (leave blank to use the default):', s?.name || '');
     if (name === null) return;
-    post(`/api/sessions/${encodeURIComponent(cs)}/rename`, { name: name.trim() }).then(() => { toast(name.trim() ? 'Renamed' : 'Name cleared'); setTimeout(load, 250); }).catch(() => {});
+    renameEverywhere({ cs, sessionId: s?.sessionId, name }).then(nm => toast(nm ? 'Renamed' : 'Name cleared')).catch(() => {});
   },
   // Drag a pane by its grip to a new slot. Nodes are re-ordered in place, so terminals keep their connection.
   startPaneDrag(cs, e) {
