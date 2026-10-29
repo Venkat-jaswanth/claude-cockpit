@@ -11,11 +11,14 @@ import { loadConfig, portOf } from '../config.js';
 import { request } from '../client.js';
 import { ensureDaemon } from '../daemonctl.js';
 import { attach } from '../attach.js';
+import { claudeEnv } from '../seats.js';
+import { CLAUDE_BIN } from '../paths.js';
 
 const html = htm.bind(React.createElement);
 const ACCENT = '#5eead4';          // teal — cockpit's terminal accent (refined in the brand pass)
 const ACCENT_DIM = '#2f6f69';
 const SEAT_COLORS = ['#5eead4', '#f0abfc', '#fca5a5', '#fcd34d', '#7dd3fc', '#c4b5fd', '#86efac', '#fdba74'];  // one stable colour per seat
+const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];  // braille spinner for "thinking"
 const evColor = t => /error|exhausted|crash/.test(t) ? 'red' : /limit|handoff|threshold|recommend|queued|lost/.test(t) ? 'yellow' : /start|resumed|usage|arm|restore/.test(t) ? 'green' : 'gray';
 
 function projOf(s) { const cwd = s.cwd || ''; if (/scratch-workspaces/.test(cwd)) return 'scratch'; return (cwd ? path.basename(cwd) : 'unknown') || 'unknown'; }
@@ -51,7 +54,9 @@ function runBot(seat, message, convId) {
     try { fs.mkdirSync(BOT_DIR, { recursive: true }); } catch {}
     const args = ['-p', message, '--output-format', 'json', '--append-system-prompt', BOT_SYS, '--permission-prompts', 'none'];
     if (convId) args.push('--resume', convId);
-    execFile('claude', args, { cwd: BOT_DIR, env: { ...process.env, CLAUDE_CONFIG_DIR: seat.configDir }, maxBuffer: 16 * 1024 * 1024, timeout: 120000 }, (err, stdout, stderr) => {
+    // Use the same auth the daemon uses for this seat: a `base` seat must NOT set CLAUDE_CONFIG_DIR
+    // (it logs in via the default location / Keychain); only profile seats point at their own dir.
+    execFile(CLAUDE_BIN, args, { cwd: BOT_DIR, env: claudeEnv(seat), maxBuffer: 16 * 1024 * 1024, timeout: 120000 }, (err, stdout, stderr) => {
       const raw = String(stdout || '');
       if (!raw.trim()) return resolve({ ok: false, error: String((stderr || (err && err.message) || 'no response')).split('\n')[0].slice(0, 200) });
       try { const j = JSON.parse(raw); resolve({ ok: !j.is_error, text: (j.result || '').trim() || '(no reply)', id: j.session_id || convId, error: j.is_error ? (j.result || 'error') : null }); }
@@ -120,6 +125,7 @@ function App({ port, onDone }) {
   const [botConvId, setBotConvId] = useState(null);
   const [connErr, setConnErr] = useState(false);
   const [usel, setUsel] = useState(0);            // usage view: selected seat
+  const [tick, setTick] = useState(0);            // animation frame for the "thinking" spinner
 
   useEffect(() => {
     let alive = true;
@@ -129,6 +135,13 @@ function App({ port, onDone }) {
     const a = setInterval(tick, 2000), b = setInterval(tickLib, 8000);
     return () => { alive = false; clearInterval(a); clearInterval(b); };
   }, [port]);
+
+  // Drive the "thinking" spinner only while a bot reply is in flight.
+  useEffect(() => {
+    if (!botPending) return;
+    const id = setInterval(() => setTick(t => (t + 1) % 10000), 90);
+    return () => clearInterval(id);
+  }, [botPending]);
 
   const post = (p, body) => request(port, 'POST', p, body || {}).catch(() => {});
   const flash = m => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
@@ -354,7 +367,7 @@ function App({ port, onDone }) {
             <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '❯ cockpit'}</${Text}>
             <${Text} wrap="wrap">${mm.text}</${Text}>
           </${Box}>`)}
-      ${botPending ? html`<${Box}><${Text} color=${ACCENT}>⇄ thinking…</${Text}></${Box}>` : null}
+      ${botPending ? html`<${Box} marginTop=${1}><${Text} color=${ACCENT}>${SPIN[tick % SPIN.length] + ' '}</${Text}><${Text} color="gray">cockpit is thinking${'.'.repeat(tick % 4)}</${Text}></${Box}>` : null}
       <${Box} marginTop=${1}><${Text} color=${ACCENT}>› </${Text}><${Text}>${botBuf}</${Text}><${Text} color=${ACCENT}>▋</${Text}></${Box}>
     </${Box}>` : null}
 
