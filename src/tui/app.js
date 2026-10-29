@@ -62,7 +62,7 @@ function burnText(s) { const b = s.burn; if (b && b.rising && b.etaMin != null &
 function Logo() {
   return html`<${Box} flexDirection="column" marginBottom=${1}>
     <${Box}>
-      <${Text} color=${ACCENT} bold>${'⇄ cockpit'}</${Text}>
+      <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} bold>${'cockpit'}</${Text}><${Text} color=${ACCENT_DIM}>${'▋'}</${Text}>
       <${Text} color="gray">${'   terminal control for many Claude Code seats'}</${Text}>
     </${Box}>
     <${Text} color=${ACCENT_DIM}>${'─'.repeat(64)}</${Text}>
@@ -250,7 +250,7 @@ function App({ port, onDone }) {
     else if (input === 'h') { post(`/api/sessions/${encodeURIComponent(cur.cs)}/handoff`, { toSeat: null }); flash('handing off ' + (cur.name || cur.cs)); }
   });
 
-  if (!st) return html`<${Box} padding=${1}><${Text} color=${ACCENT}>⇄ connecting to the cockpit daemon…</${Text}></${Box}>`;
+  if (!st) return html`<${Box} padding=${1}><${Text} color=${ACCENT}>❯ connecting to the cockpit daemon…</${Text}></${Box}>`;
 
   // ---- render ----
   const footer = mode === 'cmd' ? null
@@ -316,7 +316,7 @@ function App({ port, onDone }) {
       <${Box} marginBottom=${1}><${Text} bold>Assistant</${Text}><${Text} color="gray">${`   texting cockpit${bestName ? ' · on ' + bestName : ''}`}</${Text}></${Box}>
       ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit — commands, accounts, hand-offs, usage, setup.</${Text}>`
         : botMsgs.slice(-10).map((mm, i) => html`<${Box} key=${i} flexDirection="column" marginBottom=${1}>
-            <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '⇄ cockpit'}</${Text}>
+            <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '❯ cockpit'}</${Text}>
             <${Text} wrap="wrap">${mm.text}</${Text}>
           </${Box}>`)}
       ${botPending ? html`<${Box}><${Text} color=${ACCENT}>⇄ thinking…</${Text}></${Box}>` : null}
