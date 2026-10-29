@@ -45,6 +45,10 @@ function termXtermOptions() { const p = termPrefs(); return { cursorBlink: true,
 // Saved reusable commands/prompts (client-side), surfaced in Settings and the command palette.
 function cmds() { try { return JSON.parse(localStorage.getItem('cockpit.cmds') || '[]'); } catch { return []; } }
 function saveCmds(list) { try { localStorage.setItem('cockpit.cmds', JSON.stringify(list)); } catch {} }
+// Project display aliases: rename a project's title without touching the folder it maps to.
+function projAliases() { try { return JSON.parse(localStorage.getItem('cockpit.projAliases') || '{}'); } catch { return {}; } }
+function saveProjAlias(base, title) { const a = projAliases(); const t = (title || '').trim(); if (t && t !== base) a[base] = t; else delete a[base]; try { localStorage.setItem('cockpit.projAliases', JSON.stringify(a)); } catch {} }
+function aliasName(base) { return projAliases()[base] || base; }
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = p => (p || '').replace(/^\/Users\/[^/]+/, '~');
@@ -398,7 +402,7 @@ function vLibrary() {
   const filtering = !!(q || libStar || libTag);
   const groupCard = (g, idx) => {
     const sample = g.list[0];
-    const name = libGroup === 'folder' ? short(sample.cwd) : libGroup === 'flat' ? 'All conversations' : sample.projectName;
+    const name = libGroup === 'folder' ? short(sample.cwd) : libGroup === 'flat' ? 'All conversations' : aliasName(sample.projectName);
     const pathLine = libGroup === 'project' ? short(sample.projectPath || sample.cwd) : '';
     const open = (g.k in openGroups) ? openGroups[g.k] : (filtering ? true : idx === 0);
     const h = hue(name || 'x');
@@ -407,7 +411,8 @@ function vLibrary() {
       <button class="phead" data-group="${esc(encodeURIComponent(g.k))}" aria-expanded="${open}">
         <span class="pchev" aria-hidden="true">▸</span>
         <span class="pdot" style="background:hsl(${h} 48% 52%)"></span>
-        <span class="pname">${esc(name)}${sample.inRepo && libGroup === 'project' ? ' <span class="badge">repo</span>' : ''}</span>
+        <span class="pname">${esc(name)}${sample.inRepo && libGroup === 'project' ? ' <span class="badge">repo</span>' : ''}${(libGroup === 'project' && aliasName(sample.projectName) !== sample.projectName) ? ' <span class="badge" title="Renamed from ' + esc(sample.projectName) + '">renamed</span>' : ''}</span>
+        ${libGroup === 'project' ? `<span class="iconbtn" role="button" tabindex="0" data-projrename="${esc(sample.projectName)}" title="Rename this project">✎</span>` : ''}
         ${pathLine ? `<span class="ppath tiny muted">${esc(pathLine)}</span>` : ''}
         <span class="pmeta tiny muted">${starCount ? `<span class="pmeta-star">★ ${starCount}</span> · ` : ''}${fmtTok(g.tokens)} tok${g.cost ? ' · ' + fmtCost(g.cost) : ''} · ${ago(g.lastAt)}</span>
         <span class="pcount" title="${g.list.length} conversation${g.list.length === 1 ? '' : 's'}">${g.list.length}</span>
@@ -688,6 +693,7 @@ function wire(el) {
   const startLibRename = span => inlineRename(span, { current: span.dataset.cur, lock: () => dirtyForms.add('library'), unlock: () => dirtyForms.delete('library'), onCommit: v => { const sid = span.dataset.sid, live = (state?.sessions || []).find(x => x.sessionId === sid && x.alive); renameEverywhere({ cs: live?.cs, sessionId: sid, name: v }).then(nm => toast(nm ? 'Renamed' : 'Original title restored')); } });
   el.querySelectorAll('.lrow-name[data-sid]').forEach(span => span.ondblclick = () => startLibRename(span));
   el.querySelectorAll('[data-rename]').forEach(b => b.onclick = () => { const span = b.closest('.title')?.querySelector('.lrow-name[data-sid]'); if (span) startLibRename(span); });
+  el.querySelectorAll('[data-projrename]').forEach(b => b.onclick = e => { e.stopPropagation(); const base = b.dataset.projrename, cur = aliasName(base); const t = prompt(`Rename project "${base}" to (blank = original name):`, cur === base ? '' : cur); if (t === null) return; saveProjAlias(base, t); render(); });
   el.querySelectorAll('[data-project]').forEach(b => b.onclick = async () => {
     const existing = [...new Set(library.map(r => r.projectName).filter(Boolean))].sort();
     const hint = existing.length ? '\n\nExisting projects:\n• ' + existing.slice(0, 20).join('\n• ') : '';
