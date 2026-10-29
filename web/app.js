@@ -636,7 +636,15 @@ function render() {
   if (viewChanged && !/\bnomotion\b/.test(location.search)) { el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter'); }
   if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   wire(el);
-  if (viewChanged) animateCounts(el);
+  if (viewChanged) { animateCounts(el); animateEnter(el); }
+}
+// One-time entrance draw for the Runway sparklines and the Today timeline, on navigation only.
+function animateEnter(scope) {
+  if (/\bnomotion\b/.test(location.search)) return;
+  try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch {}
+  scope.querySelectorAll('.spark .line').forEach(p => { p.style.transition = 'none'; p.style.strokeDashoffset = '1'; void p.getBoundingClientRect(); p.style.transition = ''; requestAnimationFrame(() => { p.style.strokeDashoffset = '0'; }); });
+  scope.querySelectorAll('.spark .area').forEach(a => { a.style.transition = 'none'; a.style.opacity = '0'; void a.getBoundingClientRect(); a.style.transition = ''; requestAnimationFrame(() => { a.style.opacity = ''; }); });
+  scope.querySelectorAll('.gblock').forEach((b, i) => { b.style.transition = 'none'; b.style.transform = 'scaleX(0)'; void b.getBoundingClientRect(); b.style.transition = ''; b.style.transitionDelay = (i % 8) * 45 + 'ms'; requestAnimationFrame(() => { b.style.transform = 'scaleX(1)'; setTimeout(() => { b.style.transitionDelay = ''; }, 760); }); });
 }
 function wire(el) {
   el.querySelectorAll('button[data-act]').forEach(b => b.onclick = async () => {
@@ -695,6 +703,7 @@ function wire(el) {
   });
   el.querySelectorAll('[data-cmd-del]').forEach(b => b.onclick = () => { const l = cmds(); l.splice(+b.dataset.cmdDel, 1); saveCmds(l); render(); });
   el.querySelectorAll('[data-cmd-run]').forEach(b => b.onclick = () => { const c = cmds()[+b.dataset.cmdRun]; if (c) { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = c.text; nsForm.prompt.focus(); } }, 60); } });
+  el.querySelectorAll('[data-qltext]').forEach(b => b.onclick = () => { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = b.dataset.qltext; nsForm.prompt.focus(); } }, 60); });
   const cmdAdd = el.querySelector('#cmdAdd'); if (cmdAdd) cmdAdd.onclick = () => { const n = el.querySelector('#cmdName').value.trim(), t = el.querySelector('#cmdText').value.trim(); if (!n || !t) return; const l = cmds(); l.push({ name: n, text: t }); saveCmds(l); render(); };
   const settings = el.querySelector('#settings');
   if (settings) {
@@ -739,6 +748,7 @@ $('#btnCheckAll').onclick = async () => { await post('/api/probe-all'); toast('C
 async function load() {
   try {
     const r = await fetch('/api/state'); state = await r.json();
+    sampleUsage();
     render();
   } catch { $('#brandSub').textContent = 'daemon unreachable'; $('#daemonLine').textContent = 'In a terminal: cockpit daemon start'; }
 }
