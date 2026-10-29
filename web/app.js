@@ -845,13 +845,18 @@ class WsPane {
   dispose() { try { this.ws && this.ws.close(); } catch {} try { this.term && this.term.dispose(); } catch {} }
 }
 const wsCtl = {
-  panes: new Map(), order: [], layout: 'auto', focus: null, built: false, rootEl: null, grid: null, bar: null, barSig: '',
-  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; } catch {} },
-  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout })); } catch {} },
+  panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null,
+  colFr: [], rowFr: [], handles: [], _cols: 0, _rows: 0, _vsig: '',
+  built: false, rootEl: null, grid: null, bar: null, barSig: '',
+  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowFr = Array.isArray(s.rowFr) ? s.rowFr : []; } catch {} },
+  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout, filter: this.filter, colFr: this.colFr, rowFr: this.rowFr })); } catch {} },
   running() { return (state?.sessions || []).filter(s => s.alive && s.managed && s.kind === 'claude'); },
   runningIds() { return this.running().map(s => s.cs); },
-  computeCols() { const n = this.order.length; if (this.layout !== 'auto') return Number(this.layout); return n <= 1 ? 1 : n <= 4 ? 2 : 3; },
-  applyCols() { if (this.grid) this.grid.style.setProperty('--cols', this.computeCols()); },
+  sessOf(cs) { return (state?.sessions || []).find(x => x.cs === cs); },
+  // Does a session pass the current filter? working = mid-turn; needs = finished its turn or ended.
+  matches(cs) { const s = this.sessOf(cs); if (this.filter === 'working') return !!(s && s.alive && s.status === 'busy'); if (this.filter === 'needs') return !s || !s.alive || s.status === 'idle'; return true; },
+  visibleOrder() { return this.order.filter(cs => this.matches(cs)); },
+  computeCols(n) { if (!n) return 1; if (this.layout !== 'auto') return Math.min(Number(this.layout), n); return n <= 1 ? 1 : n <= 4 ? 2 : 3; },
   build(contentEl) {
     this.load();
     const inSess = new Set((state?.sessions || []).map(s => s.cs));
@@ -863,7 +868,9 @@ const wsCtl = {
   },
   wireRoot() {
     this.rootEl.addEventListener('click', e => {
+      if (!e.target.closest('.wp-menu') && !e.target.closest('[data-wp="menu"]')) this.closeMenus();
       const lb = e.target.closest('[data-ws-layout]'); if (lb) return this.setLayout(lb.dataset.wsLayout);
+      const fb = e.target.closest('[data-ws-filter]'); if (fb) return this.setFilter(fb.dataset.wsFilter);
       if (e.target.closest('[data-ws-addall]')) return this.addAll();
       if (e.target.closest('[data-ws-new]')) return openSheet();
       if (e.target.closest('[data-ws-unfocus]')) return this.setFocus(null);
@@ -873,13 +880,15 @@ const wsCtl = {
   },
   barHtml() {
     const running = this.running(), open = new Set(this.order), addable = running.filter(s => !open.has(s.cs));
-    const seg = `<div class="seg">${['auto', '1', '2', '3', '4'].map(l => `<button class="${this.layout === l ? 'on' : ''}" data-ws-layout="${l}">${l === 'auto' ? 'Auto' : l}</button>`).join('')}</div>`;
+    const layoutSeg = `<div class="ws-cluster"><span class="ws-lbl">Layout</span><div class="seg">${['auto', '1', '2', '3', '4'].map(l => `<button class="${this.layout === l ? 'on' : ''}" data-ws-layout="${l}">${l === 'auto' ? 'Auto' : l}</button>`).join('')}</div></div>`;
+    const filterSeg = `<div class="ws-cluster"><span class="ws-lbl">Show</span><div class="seg">${[['all', 'All'], ['working', 'Working'], ['needs', 'Needs you']].map(([k, t]) => `<button class="${this.filter === k ? 'on' : ''}" data-ws-filter="${k}">${t}</button>`).join('')}</div></div>`;
     const add = addable.length ? `<select class="sel sm" data-ws-add><option value="">Add a session…</option>${addable.map(s => `<option value="${esc(s.cs)}">${esc(s.name || s.cs)} · ${esc(s.seat)}</option>`).join('')}</select>` : '';
     const addAll = addable.length ? `<button class="btn sm" data-ws-addall>Add all (${addable.length})</button>` : '';
     const unfocus = this.focus ? `<button class="btn sm" data-ws-unfocus>Exit focus</button>` : '';
-    return `${seg}${add}${addAll}${unfocus}<span class="spacer"></span><span class="tiny muted">${this.order.length} open · ${running.length} running</span><button class="btn sm primary" data-ws-new>New session</button>`;
+    return `${layoutSeg}${filterSeg}${unfocus}<span class="spacer"></span>${add}${addAll}<span class="tiny muted">${this.order.length} open · ${running.length} running</span><button class="btn sm primary" data-ws-new>New session</button>`;
   },
-  refreshBar() { this.barSig = this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + (this.focus || ''); if (this.bar) this.bar.innerHTML = this.barHtml(); },
+  barSigNow() { return this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + this.filter + '|' + (this.focus || ''); },
+  refreshBar() { this.barSig = this.barSigNow(); if (this.bar) this.bar.innerHTML = this.barHtml(); },
   paneHtml(cs) {
     const s = (state?.sessions || []).find(x => x.cs === cs) || { cs, name: cs, seat: '?', status: 'lost' };
     const seat = (state?.seats || []).find(z => z.name === s.seat); const p = seat ? seatPct(seat) : null;
@@ -892,7 +901,13 @@ const wsCtl = {
         <button class="btn sm" data-wp="handoff" title="Move to the freshest seat">Hand off</button>
         <button class="iconbtn" data-wp="pop" title="Open in Terminal app">⇱</button>
         <button class="iconbtn" data-wp="max" title="Maximize">⤢</button>
-        <button class="iconbtn" data-wp="close" title="Remove from workspace">✕</button>
+        <span class="wp-close-wrap">
+          <button class="iconbtn" data-wp="menu" title="Remove or stop">✕</button>
+          <div class="wp-menu" hidden>
+            <button data-wp="hide">Hide from workspace<small>keeps the session running</small></button>
+            <button class="danger" data-wp="stop">Stop session<small>ends it — resume later from Sessions</small></button>
+          </div>
+        </span>
       </div>
       <div class="wp-term"></div>
       <div class="wp-ended" hidden><div><b>Session ended</b> <span class="muted wp-ended-code"></span></div><button class="btn sm primary" data-wp="resume">Resume</button></div>
@@ -906,33 +921,86 @@ const wsCtl = {
   },
   makeNode(cs) { const d = document.createElement('div'); d.innerHTML = this.paneHtml(cs).trim(); return d.firstElementChild; },
   renderGrid() {
-    this.grid.innerHTML = '';
+    this.grid.innerHTML = ''; this.handles = []; this._cols = this._rows = 0;
     if (!this.order.length) { this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); this.rootEl.classList.remove('focus'); return; }
-    this.grid.classList.remove('is-empty'); this.applyCols();
+    this.grid.classList.remove('is-empty');
     for (const cs of this.order) { const node = this.makeNode(cs); this.grid.appendChild(node); const alive = !!(state?.sessions || []).find(x => x.cs === cs && x.alive); const pane = new WsPane(cs, node, !alive); this.panes.set(cs, pane); pane.mount(); }
-    this.rootEl.classList.toggle('focus', !!this.focus); this.refreshAll(); this.fitAll();
+    this.rootEl.classList.toggle('focus', !!this.focus); this.refreshAll(); this.applyTracks(); this.fitAll();
+  },
+  // Lay out the visible panes into resizable fr-based tracks, and (re)place the drag gutters.
+  applyTracks() {
+    if (!this.grid || this.grid.classList.contains('is-empty')) { this.clearHandles(); return; }
+    const vis = [];
+    for (const cs of this.order) { const pane = this.panes.get(cs); if (!pane) continue; const show = this.focus ? cs === this.focus : this.matches(cs); pane.node.classList.toggle('wp-hidden', !show); if (show) vis.push(cs); }
+    this._visCache = vis;
+    if (this.focus) { this.grid.style.gridTemplateColumns = '1fr'; this.grid.style.gridTemplateRows = '1fr'; this.clearHandles(); return; }
+    const n = vis.length; if (!n) { this.clearHandles(); return; }
+    const cols = this.computeCols(n), rows = Math.ceil(n / cols);
+    if (this.colFr.length !== cols) this.colFr = Array(cols).fill(1);
+    if (this.rowFr.length !== rows) this.rowFr = Array(rows).fill(1);
+    this.grid.style.gridTemplateColumns = this.colFr.map(f => f.toFixed(4) + 'fr').join(' ');
+    this.grid.style.gridTemplateRows = this.rowFr.map(f => f.toFixed(4) + 'fr').join(' ');
+    if (cols !== this._cols || rows !== this._rows) { this._cols = cols; this._rows = rows; this.buildHandles(cols, rows); }
+    this.positionHandles();
+  },
+  clearHandles() { for (const h of this.handles) h.remove(); this.handles = []; this._cols = this._rows = 0; },
+  buildHandles(cols, rows) {
+    this.clearHandles(); this._cols = cols; this._rows = rows;
+    for (let i = 1; i < cols; i++) this.handles.push(this.makeHandle('col', i));
+    for (let j = 1; j < rows; j++) this.handles.push(this.makeHandle('row', j));
+  },
+  makeHandle(kind, idx) { const h = document.createElement('div'); h.className = 'ws-gutter ' + kind; h.dataset.kind = kind; h.dataset.idx = idx; this.grid.appendChild(h); this.attachGutter(h); return h; },
+  visNodeAt(r, c) { const cs = (this._visCache || [])[r * this._cols + c]; const p = cs && this.panes.get(cs); return p ? p.node : null; },
+  positionHandles() {
+    if (!this.handles.length || !this.grid) return; const gap = 12;
+    for (const h of this.handles) { const kind = h.dataset.kind, idx = +h.dataset.idx;
+      if (kind === 'col') { const n = this.visNodeAt(0, idx); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.left = (n.offsetLeft - gap / 2) + 'px'; h.style.top = '0'; h.style.width = gap + 'px'; h.style.height = this.grid.clientHeight + 'px'; }
+      else { const n = this.visNodeAt(idx, 0); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.top = (n.offsetTop - gap / 2) + 'px'; h.style.left = '0'; h.style.height = gap + 'px'; h.style.width = this.grid.clientWidth + 'px'; } }
+  },
+  attachGutter(h) {
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault(); const kind = h.dataset.kind, idx = +h.dataset.idx;
+      const a = kind === 'col' ? this.visNodeAt(0, idx - 1) : this.visNodeAt(idx - 1, 0);
+      const b = kind === 'col' ? this.visNodeAt(0, idx) : this.visNodeAt(idx, 0);
+      if (!a || !b) return; h.setPointerCapture(e.pointerId); h.classList.add('dragging');
+      const arr = kind === 'col' ? this.colFr : this.rowFr;
+      const start = kind === 'col' ? e.clientX : e.clientY;
+      const aPx0 = kind === 'col' ? a.offsetWidth : a.offsetHeight;
+      const totalPx = aPx0 + (kind === 'col' ? b.offsetWidth : b.offsetHeight);
+      const totalFr = arr[idx - 1] + arr[idx], minPx = Math.max(80, Math.min(180, totalPx * 0.18));
+      const move = ev => { const d = (kind === 'col' ? ev.clientX : ev.clientY) - start; const aPx = Math.max(minPx, Math.min(totalPx - minPx, aPx0 + d));
+        arr[idx - 1] = totalFr * aPx / totalPx; arr[idx] = totalFr - arr[idx - 1];
+        this.grid.style[kind === 'col' ? 'gridTemplateColumns' : 'gridTemplateRows'] = arr.map(f => f.toFixed(4) + 'fr').join(' ');
+        this.positionHandles(); };
+      const up = () => { h.classList.remove('dragging'); try { h.releasePointerCapture(e.pointerId); } catch {} h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.save(); this.fitAll(); };
+      h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
+    });
   },
   addPane(cs) {
     if (this.panes.has(cs)) return;
     if (!this.order.length) { this.grid.innerHTML = ''; this.grid.classList.remove('is-empty'); }
-    this.order.push(cs); this.save(); this.applyCols();
+    this.order.push(cs); this.save();
     const node = this.makeNode(cs); this.grid.appendChild(node);
     const alive = !!(state?.sessions || []).find(x => x.cs === cs && x.alive); const pane = new WsPane(cs, node, !alive); this.panes.set(cs, pane); pane.mount();
-    this.refreshBar(); this.refreshPane(cs); this.fitAll();
+    this.refreshBar(); this.refreshPane(cs); this.applyTracks(); this.fitAll();
   },
   addAll() { for (const s of this.running()) if (!this.panes.has(s.cs)) this.addPane(s.cs); },
   removePane(cs) {
     const pane = this.panes.get(cs); if (pane) { pane.dispose(); pane.node.remove(); this.panes.delete(cs); }
     this.order = this.order.filter(x => x !== cs); this.save();
     if (this.focus === cs) { this.focus = null; this.rootEl.classList.remove('focus'); }
-    if (!this.order.length) { this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); } else this.applyCols();
+    if (!this.order.length) { this.clearHandles(); this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); } else this.applyTracks();
     this.refreshBar(); this.fitAll();
   },
-  setLayout(l) { this.layout = l; this.save(); this.applyCols(); this.refreshBar(); this.fitAll(); },
-  setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.refreshBar(); this.fitAll(); },
+  closeMenus() { this.panes.forEach(p => { const m = p.node.querySelector('.wp-menu'); if (m) m.hidden = true; }); },
+  setLayout(l) { this.layout = l; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setFilter(f) { this.filter = f; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   paneAction(action, cs) {
+    if (action === 'menu') { const pane = this.panes.get(cs); if (!pane) return; const m = pane.node.querySelector('.wp-menu'); const open = m && m.hidden; this.closeMenus(); if (m && open) m.hidden = false; return; }
     if (action === 'max') return this.setFocus(this.focus === cs ? null : cs);
-    if (action === 'close') return this.removePane(cs);
+    if (action === 'hide') return this.removePane(cs);
+    if (action === 'stop') { this.closeMenus(); return post(`/api/sessions/${encodeURIComponent(cs)}/stop`).then(() => { toast('Session stopped'); this.removePane(cs); }).catch(() => {}); }
     if (action === 'pop') return post(`/api/sessions/${encodeURIComponent(cs)}/open-terminal`).then(() => toast('Opened in Terminal')).catch(() => {});
     if (action === 'handoff') return post(`/api/sessions/${encodeURIComponent(cs)}/handoff`, { toSeat: null }).then(j => toast(j.queued ? `Queued → ${j.to}` : `→ ${j.to}`)).catch(() => {});
     if (action === 'resume') return post(`/api/sessions/${encodeURIComponent(cs)}/restore`, {}).then(() => { toast('Resuming…'); const pane = this.panes.get(cs); if (pane) { const o = pane.node.querySelector('.wp-ended'); if (o) o.hidden = true; pane.connect(); } setTimeout(load, 500); }).catch(() => {});
@@ -940,7 +1008,7 @@ const wsCtl = {
   refreshPane(cs) {
     const pane = this.panes.get(cs); if (!pane) return; const node = pane.node;
     const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
-    node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '');
+    node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '') + (node.classList.contains('wp-hidden') ? ' wp-hidden' : '');
     const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
     const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
     const se = node.querySelector('.wp-seat'); if (se) se.innerHTML = `<span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s?.seat || '?')}${p != null ? ` ${p}%` : ''}`;
@@ -948,9 +1016,15 @@ const wsCtl = {
     if (s && !s.alive && !pane.ended) pane.markEnded();
   },
   refreshAll() { for (const cs of this.order) this.refreshPane(cs); },
-  fitAll() { requestAnimationFrame(() => this.panes.forEach(p => p.fitNow())); setTimeout(() => this.panes.forEach(p => p.fitNow()), 280); },
+  fitAll() { requestAnimationFrame(() => { this.panes.forEach(p => p.fitNow()); this.positionHandles(); }); setTimeout(() => { this.panes.forEach(p => p.fitNow()); this.positionHandles(); }, 280); },
   applyAppearance() { this.panes.forEach(p => p.applyAppearance()); },
-  update() { if (!this.built) return; const sig = this.runningIds().join(',') + '|' + this.order.join(',') + '|' + this.layout + '|' + (this.focus || ''); if (sig !== this.barSig) this.refreshBar(); this.refreshAll(); },
-  teardown() { this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
+  update() {
+    if (!this.built) return;
+    if (this.barSigNow() !== this.barSig) this.refreshBar();
+    this.refreshAll();
+    const vsig = this.visibleOrder().join(',') + '|' + (this.focus || '') + '|' + this.layout + '|' + this.filter;
+    if (vsig !== this._vsig) { this._vsig = vsig; this.applyTracks(); this.fitAll(); }
+  },
+  teardown() { this.closeMenus(); this.clearHandles(); this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
 };
-window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) wsCtl.fitAll(); });
+window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) { wsCtl.positionHandles(); wsCtl.fitAll(); } });
