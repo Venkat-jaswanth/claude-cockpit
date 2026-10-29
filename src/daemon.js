@@ -187,6 +187,8 @@ function burnFor(name) {
   const etaMin = Math.max(0, Math.round((100 - last.pct) / perHour * 60));
   return { perHour: Math.round(perHour * 10) / 10, etaMin, rising: true };
 }
+// The recent 5-hour % readings, for drawing a sparkline of each seat's trend.
+function trendFor(name) { return (pctHistory.get(name) || []).slice(-16).map(p => p.pct); }
 
 function usageSummary() {
   const days = Object.keys(ledger.days).sort();
@@ -468,7 +470,7 @@ function state() {
   return {
     version: VERSION, port: PORT, uptime: Date.now() - startedAt, now: Date.now(),
     config: { handoff: cfg.handoff, pollSec: cfg.pollSec, notifications: cfg.notifications, autoCheckMin: Number(cfg.autoCheckMin || 0), budgetMonthlyUSD: Number(cfg.budgetMonthlyUSD || 0) },
-    seats: cfg.seats.map(seat => ({ name: seat.name, kind: seat.kind, email: seat.email || null, org: seat.org || null, plan: seat.plan || null, disabled: !!seat.disabled, configDir: seat.configDir, usage: usageCache[seat.name], activeSessions: managedSessionsOn(seat.name), outsideSessions: outsideSessionsOn(seat.name), probe: probeState(seat.name), arm: armState(seat.name), burn: burnFor(seat.name) })),
+    seats: cfg.seats.map(seat => ({ name: seat.name, kind: seat.kind, email: seat.email || null, org: seat.org || null, plan: seat.plan || null, disabled: !!seat.disabled, configDir: seat.configDir, usage: usageCache[seat.name], activeSessions: managedSessionsOn(seat.name), outsideSessions: outsideSessionsOn(seat.name), probe: probeState(seat.name), arm: armState(seat.name), burn: burnFor(seat.name), pctTrend: trendFor(seat.name) })),
     probing: [...probes.values()].some(r => r.running),
     sessions: [...sessions.values()].filter(x => x.kind !== 'probe').map(sessionView).sort((a, b) => b.lastActivity - a.lastActivity),
     jobs: jobs.filter(j => j.status === 'queued' || (j.startedAt || j.createdAt) > Date.now() - 6 * 3600e3).sort((a, b) => a.at - b.at),

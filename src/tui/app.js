@@ -66,14 +66,50 @@ function runBot(seat, message, convId) {
 }
 function meter(pct, width = 18) { const n = Math.round(Math.max(0, Math.min(100, pct || 0)) / 100 * width); return '█'.repeat(n) + '░'.repeat(width - n); }
 function burnText(s) { const b = s.burn; if (b && b.rising && b.etaMin != null && b.etaMin > 0 && b.etaMin <= 600) return `▲ ${b.perHour}%/h · ~${b.etaMin >= 60 ? Math.floor(b.etaMin / 60) + 'h' + (b.etaMin % 60) + 'm' : b.etaMin + 'm'} left`; return 'steady'; }
+const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+// Sparkline of a seat's recent 5-hour % (daemon exposes pctTrend), normalised to its own range.
+const SPK = '▁▂▃▄▅▆▇█';
+function spark(arr, n = 8) {
+  const a = (arr || []).filter(v => typeof v === 'number');
+  if (a.length < 2) return '·'.repeat(n);
+  const tail = a.slice(-n), lo = Math.min(...tail), hi = Math.max(...tail), rng = (hi - lo) || 1;
+  const s = tail.map(v => SPK[Math.min(7, Math.floor((v - lo) / rng * 7.999))]).join('');
+  return s.length < n ? SPK[0].repeat(n - s.length) + s : s;
+}
+// The big splash wordmark (ANSI Shadow), shown full-screen on launch.
+const HERO = [
+  ' ██████╗ ██████╗  ██████╗██╗  ██╗██████╗ ██╗████████╗',
+  '██╔════╝██╔═══██╗██╔════╝██║ ██╔╝██╔══██╗██║╚══██╔══╝',
+  '██║     ██║   ██║██║     █████╔╝ ██████╔╝██║   ██║   ',
+  '██║     ██║   ██║██║     ██╔═██╗ ██╔═══╝ ██║   ██║   ',
+  '╚██████╗╚██████╔╝╚██████╗██║  ██╗██║     ██║   ██║   ',
+  ' ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝   ╚═╝   ',
+];
 
-function Logo() {
-  return html`<${Box} flexDirection="column" marginBottom=${1}>
-    <${Box}>
-      <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} bold>${'cockpit'}</${Text}><${Text} color=${ACCENT_DIM}>${'▋'}</${Text}>
-      <${Text} color="gray">${'   terminal control for many Claude Code seats'}</${Text}>
+function Logo({ label }) {
+  return html`<${Box} marginBottom=${1}>
+    <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} bold>${'cockpit'}</${Text}>
+    <${Text} color="gray">${'   ' + (label || 'terminal control for many Claude Code seats')}</${Text}>
+  </${Box}>`;
+}
+
+function Splash({ online, running, best, connErr, rows }) {
+  return html`<${Box} flexDirection="column" alignItems="center" justifyContent="center" height=${Math.max(16, (rows || 24) - 1)}>
+    <${Box} flexDirection="column">
+      ${HERO.map((ln, i) => html`<${Text} key=${i} color=${ACCENT} bold>${ln}</${Text}>`)}
     </${Box}>
-    <${Text} color=${ACCENT_DIM}>${'─'.repeat(64)}</${Text}>
+    <${Box} marginTop=${1}>
+      <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} color="white">a control room for Claude Code</${Text}>
+      <${Text} color=${ACCENT_DIM}>${'   ·   '}</${Text}><${Text} color="gray">runs on your machine</${Text}>
+    </${Box}>
+    <${Box} marginTop=${1}>
+      ${connErr
+        ? html`<${Text} color="red">can’t reach the daemon · start it with  cockpit daemon start</${Text}>`
+        : html`<${Text}><${Text} color="gray">seats </${Text}><${Text} color="white" bold>${online + ' '}</${Text}><${Text} color="green">online</${Text}><${Text} color="gray">${'     sessions '}</${Text}><${Text} color="white" bold>${running + ' '}</${Text}><${Text} color=${ACCENT}>running</${Text}>${best ? html`<${Text} color="gray">${'     best seat '}</${Text}><${Text} color=${ACCENT}>${'★ ' + best}</${Text}>` : null}</${Text}>`}
+    </${Box}>
+    <${Box} marginTop=${1}>
+      <${Text} color="gray">press </${Text}><${Text} color="white" bold>any key</${Text}><${Text} color="gray">${' to enter   ·   '}</${Text}><${Text} color=${ACCENT}>cockpit ›</${Text}><${Text} color=${ACCENT_DIM}>${'▋'}</${Text}>
+    </${Box}>
   </${Box}>`;
 }
 
@@ -108,7 +144,8 @@ function Row({ s, selected, seatCol }) {
   </${Box}>`;
 }
 
-function App({ port, onDone }) {
+function App({ port, onDone, splash }) {
+  const [started, setStarted] = useState(!splash);  // false shows the launch splash until a key is pressed
   const [st, setSt] = useState(null);
   const [lib, setLib] = useState(null);
   const [view, setView] = useState('status');     // status | projects
@@ -194,6 +231,8 @@ function App({ port, onDone }) {
   }
 
   useInput((input, key) => {
+    // ---- launch splash: any key enters ----
+    if (!started) { if (key.ctrl && input === 'c') return onDone({ action: 'quit' }); setStarted(true); return; }
     // ---- text-entry modes ----
     if (mode === 'cmd') {
       if (key.return) return runCmd(buf);
@@ -282,6 +321,13 @@ function App({ port, onDone }) {
     else if (input === 'h') { post(`/api/sessions/${encodeURIComponent(cur.cs)}/handoff`, { toSeat: null }); flash('handing off ' + (cur.name || cur.cs)); }
   });
 
+  const cols = process.stdout.columns || 100;
+  const rows = process.stdout.rows || 30;
+  const twoCol = cols >= 92;
+  const viewLabel = { status: 'mission control', usage: 'usage', projects: 'projects', activity: 'activity', bot: 'assistant' }[view] || '';
+
+  if (!started) return html`<${Splash} online=${_liveSeats.length} running=${st ? shownSessions(st).length : 0} best=${bestName} connErr=${connErr && !st} rows=${rows} />`;
+
   if (!st) return html`<${Box} padding=${1} flexDirection="column">
     <${Text} color=${connErr ? 'red' : ACCENT}>${connErr ? '⚠ can’t reach the cockpit daemon' : '❯ connecting to the cockpit daemon…'}</${Text}>
     ${connErr ? html`<${Text} color="gray">Start it in a terminal:  cockpit daemon start</${Text}>` : null}
@@ -300,19 +346,35 @@ function App({ port, onDone }) {
             : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · l log · a ask · : cmd · ?';
 
   return html`<${Box} flexDirection="column" padding=${1}>
-    <${Logo} />
+    <${Logo} label=${viewLabel} />
 
-    ${view === 'status' ? html`<${Box} flexDirection="column">
-      <${Box} marginBottom=${1}>
-        <${Text} bold>Status</${Text}>
-        <${Text} color="gray">${`   ${flat.length} session${flat.length === 1 ? '' : 's'} · ${groups.length} project${groups.length === 1 ? '' : 's'}`}</${Text}>
-        ${filter ? html`<${Text} color=${ACCENT}>${`   /${filter}`}</${Text}>` : null}
+    ${view === 'status' ? html`<${Box} flexDirection=${twoCol ? 'row' : 'column'}>
+      <${Box} flexDirection="column" borderStyle="round" borderColor=${ACCENT_DIM} paddingX=${1} width=${twoCol ? 30 : undefined} marginRight=${twoCol ? 1 : 0} marginBottom=${twoCol ? 0 : 1}>
+        <${Text} color=${ACCENT} bold>${'seats '}<${Text} color="gray">${'· ' + _liveSeats.length}</${Text}></${Text}>
+        ${usageSeats.map(s => { const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0); const isBest = s.name === bestName;
+          return html`<${Box} key=${s.name} flexDirection="column" marginTop=${1}>
+            <${Box}><${Text} color=${seatColOf(s.name)} bold=${isBest}>${(((isBest ? '★ ' : '  ') + s.name).padEnd(13)).slice(0, 13)}</${Text}>${u.loggedIn ? html`<${Text} color=${pctColor(p)}>${' ' + meter(p, 10) + ' ' + (p == null ? '–' : p + '%')}</${Text}>` : html`<${Text} color="red"> offline</${Text}>`}</${Box}>
+            ${u.loggedIn ? html`<${Text} color="gray">${'   resets ' + ((() => { const r = resetsIn(fh.resetsAt); return r && r !== 'reset' ? r : '—'; })()) + '  ·  wk ' + (wk ? wk + '%' : '–')}</${Text}>` : null}
+            ${u.loggedIn ? html`<${Box}><${Text} color="gray">${'   '}</${Text}><${Text} color=${(s.burn && s.burn.rising) ? 'yellow' : 'gray'}>${burnText(s)}</${Text}></${Box}>` : null}
+          </${Box}>`; })}
       </${Box}>
-      ${flat.length === 0 ? html`<${Text} color="gray">No running sessions. Start one with ${'`cockpit start`'}, or press ${'p'} to browse projects.</${Text}>`
-        : groups.map(g => html`<${Box} key=${g.project} flexDirection="column" marginBottom=${1}>
-            <${Text} color=${ACCENT} bold>${g.project} <${Text} color="gray">· ${g.items.length}</${Text}></${Text}>
-            ${g.items.map(s => html`<${Row} key=${s.cs} s=${s} selected=${cur && s.cs === cur.cs} seatCol=${seatColOf(s.seat)} />`)}
-          </${Box}>`)}
+      <${Box} flexDirection="column" borderStyle="round" borderColor=${ACCENT_DIM} paddingX=${1} flexGrow=${1}>
+        <${Box}><${Text} color=${ACCENT} bold>${'status '}</${Text}><${Text} color="gray">${`· ${flat.length} session${flat.length === 1 ? '' : 's'} · ${groups.length} project${groups.length === 1 ? '' : 's'}`}</${Text}>${filter ? html`<${Text} color=${ACCENT}>${`   /${filter}`}</${Text}>` : null}</${Box}>
+        ${flat.length === 0 ? html`<${Box} marginTop=${1}><${Text} color="gray">No running sessions. Press n to start one, or p for projects.</${Text}></${Box}>`
+          : groups.map(g => html`<${Box} key=${g.project} flexDirection="column" marginTop=${1}>
+              <${Text} bold>${g.project} <${Text} color="gray">${'· ' + g.items.length}</${Text}></${Text}>
+              ${g.items.map(s => { const sel = cur && s.cs === cur.cs;
+                return html`<${Box} key=${s.cs}>
+                  <${Text} color=${ACCENT}>${sel ? '› ' : '  '}</${Text}>
+                  <${Text} color=${dotColor(s)}>${'● '}</${Text}>
+                  <${Box} width=${18} marginRight=${1}><${Text} color=${sel ? 'white' : undefined} bold=${sel} wrap="truncate-end">${s.name || s.cs}</${Text}></${Box}>
+                  <${Box} width=${8} marginRight=${1}><${Text} color=${seatColOf(s.seat)} wrap="truncate-end">${s.seat || '?'}</${Text}></${Box}>
+                  <${Box} width=${10}><${Text} color=${dotColor(s)}>${(s.status || '').replace('_', ' ')}</${Text}></${Box}>
+                  <${Box} width=${5}><${Text} color="gray">${ago(s.lastActivity)}</${Text}></${Box}>
+                  ${s.pendingHandoff ? html`<${Text} color="yellow">${'→ ' + s.pendingHandoff.to}</${Text}>` : null}
+                </${Box}>`; })}
+            </${Box}>`)}
+      </${Box}>
     </${Box}>` : null}
 
     ${view === 'projects' ? html`<${Box} flexDirection="column">
@@ -335,19 +397,26 @@ function App({ port, onDone }) {
     </${Box}>` : null}
 
     ${view === 'usage' ? html`<${Box} flexDirection="column">
-      <${Box} marginBottom=${1}><${Text} bold>Usage</${Text}><${Text} color="gray">${st.probing ? '   refreshing…' : '   5-hour windows'}</${Text}></${Box}>
-      ${usageSeats.map((s, i) => { const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0); const on = i === Math.min(usel, usageSeats.length - 1);
-        return html`<${Box} key=${s.name}>
-          <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
-          <${Box} width=${12}><${Text} color=${on ? 'white' : undefined} bold=${s.name === bestName || on} wrap="truncate-end">${s.name}</${Text}></${Box}>
-          ${!u.loggedIn ? html`<${Text} color="red">not logged in</${Text}>` : html`<${Box}>
-            <${Text} color=${pctColor(p)}>${meter(p)}</${Text}>
-            <${Box} width=${6}><${Text} color=${pctColor(p)}> ${p == null ? '–' : p + '%'}</${Text}></${Box}>
-            <${Box} width=${16}><${Text} color="gray">resets ${(() => { const r = resetsIn(fh.resetsAt); return r && r !== 'reset' ? r : '—'; })()}</${Text}></${Box}>
-            <${Box} width=${9}><${Text} color="gray">wk ${wk ? wk + '%' : '–'}</${Text}></${Box}>
-            ${s.probe?.running ? html`<${Text} color=${ACCENT}>checking…</${Text}>` : html`<${Text} color=${(s.burn && s.burn.rising) ? 'red' : 'gray'}>${burnText(s)}</${Text}>`}
-          </${Box}>`}
-        </${Box}>`; })}
+      <${Box} marginBottom=${1}><${Text} color="gray">${st.probing ? 'refreshing all seats…' : '5-hour windows · ↑↓ select · c check · w arm'}</${Text}></${Box}>
+      ${chunk(usageSeats, twoCol ? 2 : 1).map((pair, ri) => html`<${Box} key=${ri}>
+        ${pair.map((s, ci) => { const idx = ri * (twoCol ? 2 : 1) + ci; const on = idx === Math.min(usel, usageSeats.length - 1);
+          const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0); const col = seatColOf(s.name), isBest = s.name === bestName;
+          return html`<${Box} key=${s.name} flexDirection="column" borderStyle="round" borderColor=${on ? ACCENT : ACCENT_DIM} paddingX=${1} width=${twoCol ? 34 : undefined} marginRight=${twoCol ? 1 : 0} marginBottom=${1}>
+            <${Box} justifyContent="space-between">
+              <${Text} color=${col} bold=${isBest || on}>${(isBest ? '★ ' : '') + s.name}</${Text}>
+              ${u.loggedIn ? html`<${Text} color=${pctColor(p)} bold>${p == null ? '–' : p + '%'}</${Text}>` : html`<${Text} color="red">offline</${Text}>`}
+            </${Box}>
+            ${u.loggedIn ? html`<${Text} color=${pctColor(p)}>${meter(p, twoCol ? 28 : 22)}</${Text}>` : null}
+            ${u.loggedIn ? html`<${Box} justifyContent="space-between">
+              <${Text} color="gray">${'resets ' + ((() => { const r = resetsIn(fh.resetsAt); return r && r !== 'reset' ? r : '—'; })())}</${Text}>
+              ${s.probe?.running ? html`<${Text} color=${ACCENT}>checking…</${Text}>` : html`<${Text} color=${(s.burn && s.burn.rising) ? 'yellow' : 'gray'}>${burnText(s)}</${Text}>`}
+            </${Box}>` : null}
+            ${u.loggedIn ? html`<${Box} justifyContent="space-between">
+              <${Box}><${Text} color="gray">trend </${Text}><${Text} color=${col}>${spark(s.pctTrend, 8)}</${Text}></${Box}>
+              <${Text} color="gray">${'wk ' + (wk ? wk + '%' : '–')}</${Text}>
+            </${Box}>` : null}
+          </${Box}>`; })}
+      </${Box}>`)}
     </${Box}>` : null}
 
     ${view === 'activity' ? html`<${Box} flexDirection="column">
@@ -385,17 +454,17 @@ function App({ port, onDone }) {
         <${Text} color="gray">p projects  u usage  l activity log  a ask  q quit</${Text}>
       </${Box}>` : null}
 
-    <${SeatBar} seats=${st.seats} />
+    ${(view !== 'status' && view !== 'usage' && view !== 'bot') ? html`<${SeatBar} seats=${st.seats} />` : null}
     ${msg ? html`<${Box} marginTop=${1}><${Text} color=${ACCENT}>${'• ' + msg}</${Text}></${Box}>` : null}
     ${footer ? html`<${Box} marginTop=${1}><${Text} color="gray">${footer}</${Text}></${Box}>` : null}
   </${Box}>`;
 }
 
-function runApp(port) {
+function runApp(port, splash) {
   return new Promise(resolve => {
     let resolved = false;
     const done = r => { if (resolved) return; resolved = true; try { instance.unmount(); } catch {} resolve(r); };
-    const instance = render(html`<${App} port=${port} onDone=${done} />`, { exitOnCtrlC: false });
+    const instance = render(html`<${App} port=${port} onDone=${done} splash=${splash} />`, { exitOnCtrlC: false });
     instance.waitUntilExit().then(() => done(null)).catch(() => done(null));
   });
 }
@@ -406,14 +475,35 @@ export async function startTui() {
   const cfg = loadConfig(); const port = portOf(cfg);
   if (!cfg.seats.length) { process.stderr.write('cockpit: no seats yet. Run `cockpit init` first.\n'); process.exit(1); }
   if (!(await ensureDaemon(port))) { process.stderr.write('cockpit: the daemon is not running.\n'); process.exit(1); }
-  for (;;) {
-    const r = await runApp(port);
-    if (r && r.action === 'attach') { try { await attach(port, r.cs, { label: r.label || '' }); } catch {} continue; }
-    if (r && (r.action === 'resume' || r.action === 'new')) {
-      try { const res = await request(port, 'POST', '/api/sessions', { resumeId: r.resumeId || undefined, cwd: r.cwd, ...termSize() }); if (res.status === 200 && res.body?.cs) await attach(port, res.body.cs, { label: r.label || '' }); else if (res.body?.error) process.stderr.write('cockpit: ' + res.body.error + '\n'); } catch {}
-      continue;
+
+  // Run the control room full-window: switch to the terminal's alternate screen so the TUI
+  // owns the whole window, and restore the user's shell (and cursor) cleanly on exit. We drop
+  // back to the normal screen while a session is attached, so a session behaves like plain claude.
+  const out = process.stdout;
+  const altEnter = () => { try { out.write('\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H'); } catch {} };
+  const altExit = () => { try { out.write('\x1b[?25h\x1b[?1049l'); } catch {} };
+  let restored = false;
+  const restore = () => { if (restored) return; restored = true; altExit(); };
+  process.on('exit', restore);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { restore(); process.exit(0); });
+
+  altEnter();
+  let firstLaunch = true;
+  try {
+    for (;;) {
+      const r = await runApp(port, firstLaunch);
+      firstLaunch = false;
+      if (r && r.action === 'attach') { altExit(); try { await attach(port, r.cs, { label: r.label || '' }); } catch {} altEnter(); continue; }
+      if (r && (r.action === 'resume' || r.action === 'new')) {
+        altExit();
+        try { const res = await request(port, 'POST', '/api/sessions', { resumeId: r.resumeId || undefined, cwd: r.cwd, ...termSize() }); if (res.status === 200 && res.body?.cs) await attach(port, res.body.cs, { label: r.label || '' }); else if (res.body?.error) process.stderr.write('cockpit: ' + res.body.error + '\n'); } catch {}
+        altEnter();
+        continue;
+      }
+      break;
     }
-    break;
+  } finally {
+    restore();
   }
   process.exit(0);
 }
