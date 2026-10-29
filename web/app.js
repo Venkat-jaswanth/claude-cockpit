@@ -893,9 +893,9 @@ const wsCtl = {
   computeCols(n) { if (!n) return 1; if (this.layout !== 'auto') return Math.min(Number(this.layout), n); return n <= 1 ? 1 : n <= 4 ? 2 : 3; },
   build(contentEl) {
     this.load();
-    const inSess = new Set((state?.sessions || []).map(s => s.cs));
+    const aliveIds = new Set(this.running().map(s => s.cs));
     if (!this.order.length) this.order = this.runningIds().slice(0, 4);
-    else this.order = this.order.filter(cs => inSess.has(cs));
+    else this.order = this.order.filter(cs => aliveIds.has(cs));   // the workspace holds only running sessions
     contentEl.innerHTML = `<div class="ws"><div class="ws-bar" id="wsBar"></div><div class="ws-grid" id="wsGrid"></div></div>`;
     this.rootEl = contentEl.querySelector('.ws'); this.bar = contentEl.querySelector('#wsBar'); this.grid = contentEl.querySelector('#wsGrid');
     this.wireRoot(); this.refreshBar(); this.renderGrid(); this.built = true;
@@ -1105,6 +1105,8 @@ const wsCtl = {
   applyAppearance() { this.panes.forEach(p => p.applyAppearance()); },
   update() {
     if (!this.built) return;
+    // Keep only running sessions: a pane whose session ended or was lost drops out automatically.
+    for (const cs of [...this.order]) { const s = this.sessOf(cs); if (!s || !s.alive) this.removePane(cs); }
     if (this.barSigNow() !== this.barSig) this.refreshBar();
     this.refreshAll();
     const vsig = this.visibleOrder().join(',') + '|' + (this.focus || '') + '|' + this.layout + '|' + this.filter;
