@@ -534,6 +534,7 @@ function vSettings() {
     <label class="field"><span>Cursor</span><select name="termCursor">${['block', 'bar', 'underline'].map(cu => `<option value="${cu}" ${tp.cursor === cu ? 'selected' : ''}>${cu[0].toUpperCase() + cu.slice(1)}</option>`).join('')}</select></label>
     <h3 style="margin-top:8px">Notifications</h3>
     <label class="field inline"><input name="notifications" type="checkbox" ${c.notifications ? 'checked' : ''}><span>macOS notifications for handoffs, limits and recommendations</span></label>
+    <label class="field inline"><input id="browserNotify" type="checkbox" ${notifyEnabled() ? 'checked' : ''}><span>Desktop notifications in this browser when a session finishes its turn or crashes</span></label>
     <div><button class="btn primary" type="submit">Save</button></div></form>
     <div class="card" style="margin-top:14px"><div class="card-head"><h2>Custom commands</h2></div>
       <p class="muted tiny" style="margin:0 0 10px">Reusable prompts you run often. Start a new session prewired with one, or run it from the command palette (⌘K).</p>
@@ -742,6 +743,11 @@ function wire(el) {
     settings.querySelectorAll('[data-accent]').forEach(b => b.onclick = () => { applyAccent(b.dataset.accent); settings.querySelectorAll('[data-accent]').forEach(x => x.classList.toggle('on', x === b)); });
     const saveTerm = () => { try { localStorage.setItem('cockpit.term', JSON.stringify({ theme: settings.termTheme.value, fontSize: Number(settings.termSize.value) || 13, cursor: settings.termCursor.value })); } catch {} if (view === 'workspace' && wsCtl.built) wsCtl.applyAppearance(); };
     ['termTheme', 'termSize', 'termCursor'].forEach(n => { const e2 = settings.querySelector(`[name="${n}"]`); if (e2) e2.addEventListener('change', saveTerm); });
+    const bn = settings.querySelector('#browserNotify');
+    if (bn) bn.addEventListener('change', async () => {
+      if (bn.checked) { let perm = typeof Notification !== 'undefined' ? Notification.permission : 'denied'; if (perm === 'default') perm = await Notification.requestPermission(); if (perm !== 'granted') { bn.checked = false; try { localStorage.setItem('cockpit.notify', '0'); } catch {} return toast('Your browser blocked notifications', 'bad'); } try { localStorage.setItem('cockpit.notify', '1'); } catch {} toast('Desktop notifications on'); }
+      else { try { localStorage.setItem('cockpit.notify', '0'); } catch {} toast('Desktop notifications off'); }
+    });
     settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); applyMotion(f.motion.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
   }
 }
@@ -779,8 +785,25 @@ $('#btnCheckAll').onclick = async () => { await post('/api/probe-all'); toast('C
 async function load() {
   try {
     const r = await fetch('/api/state'); state = await r.json();
-    render();
+    render(); maybeNotify();
   } catch { $('#brandSub').textContent = 'daemon unreachable'; $('#daemonLine').textContent = 'In a terminal: cockpit daemon start'; }
+}
+// Browser desktop notifications when a managed session finishes its turn (or crashes).
+let prevStatus = {}, notifySeeded = false;
+function notifyEnabled() { try { return localStorage.getItem('cockpit.notify') === '1'; } catch { return false; } }
+function maybeNotify() {
+  const on = notifyEnabled() && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  for (const s of (state?.sessions || []).filter(x => x.managed && x.kind === 'claude')) {
+    const prev = prevStatus[s.cs];
+    if (on && notifySeeded && prev && prev !== s.status) {
+      try {
+        if (s.status === 'idle' && prev === 'busy') new Notification(`${s.name || s.cs} is ready for you`, { body: `Finished its turn on ${s.seat || '?'}`, tag: 'ck-' + s.cs });
+        else if (s.status === 'crashed' && prev !== 'crashed') new Notification(`${s.name || s.cs} crashed`, { body: `On ${s.seat || '?'} — resume it from cockpit`, tag: 'ck-' + s.cs });
+      } catch {}
+    }
+    prevStatus[s.cs] = s.status;
+  }
+  notifySeeded = true;
 }
 async function loadSlow() {
   try {
@@ -936,6 +959,13 @@ const wsCtl = {
     contentEl.innerHTML = `<div class="ws"><div class="ws-bar" id="wsBar"></div><div class="ws-body"><div class="ws-rail" id="wsRail"></div><div class="ws-grid" id="wsGrid"></div></div></div>`;
     this.rootEl = contentEl.querySelector('.ws'); this.bar = contentEl.querySelector('#wsBar'); this.grid = contentEl.querySelector('#wsGrid'); this.rail = contentEl.querySelector('#wsRail');
     this.wireRoot(); this.refreshBar(); this.refreshRail(); this.renderGrid(); this.built = true;
+    if (this._onKey) document.removeEventListener('keydown', this._onKey, true);
+    this._onKey = e => {   // Alt+1..9 focuses a pane; Alt+0 / Esc exits focus — Alt avoids clashing with the terminals
+      if (view !== 'workspace' || !this.built) return;
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.key >= '1' && e.key <= '9') { const cs = this.order[+e.key - 1]; if (cs) { e.preventDefault(); this.setFocus(this.focus === cs ? null : cs); } }
+      else if (e.altKey && e.key === '0' && this.focus) { e.preventDefault(); this.setFocus(null); }
+    };
+    document.addEventListener('keydown', this._onKey, true);
   },
   // The left rail lists every running session grouped by project, needs-you first, coloured by seat.
   railSigNow() { return this.running().map(s => s.cs + s.status + s.seat + (s.name || '')).join(',') + '|' + this.order.join(',') + '|' + (this.focus || ''); },
@@ -1037,6 +1067,7 @@ const wsCtl = {
     return `<div class="wp st-${esc(s.status || 'idle')}" data-cs="${esc(cs)}" style="--seatcol:${seatColor(s.seat)}">
       <div class="wp-head">
         <span class="wp-grip" data-wp-grip title="Drag to rearrange"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="wp-num" title="Alt+number to focus"></span>
         <span class="dot ${esc(s.status || 'idle')}"></span>
         <span class="wp-name" title="Double-click to rename">${esc(s.name || cs)}</span>
         <span class="wp-seat"><span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s.seat || '?')}${p != null ? ` ${p}%` : ''}</span>
@@ -1167,6 +1198,7 @@ const wsCtl = {
     const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
     node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '') + (node.classList.contains('wp-hidden') ? ' wp-hidden' : '');
     if (s) node.style.setProperty('--seatcol', seatColor(s.seat));
+    const num = node.querySelector('.wp-num'); if (num) num.textContent = this.order.indexOf(cs) + 1;
     const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
     const nm = node.querySelector('.wp-name'); if (nm && s && this.editingCs !== cs) nm.textContent = s.name || cs;
     const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
@@ -1187,6 +1219,6 @@ const wsCtl = {
     const vsig = this.visibleOrder().join(',') + '|' + (this.focus || '') + '|' + this.layout + '|' + this.filter;
     if (vsig !== this._vsig) { this._vsig = vsig; this.applyTracks(); this.fitAll(); }
   },
-  teardown() { this.closeMenus(); this.clearHandles(); this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = this.rail = null; }
+  teardown() { this.closeMenus(); this.clearHandles(); if (this._onKey) { document.removeEventListener('keydown', this._onKey, true); this._onKey = null; } this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = this.rail = null; }
 };
 window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) { wsCtl.applyTracks(); wsCtl.fitAll(); } });
