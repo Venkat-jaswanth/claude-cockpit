@@ -31,6 +31,7 @@ function group(sessions, filter) {
 const VERBS = [
   { name: 'status', hint: 'running sessions by project' },
   { name: 'projects', hint: 'browse every project' },
+  { name: 'new', hint: 'start a session in this folder' },
   { name: 'usage', hint: 'account usage & limits' },
   { name: 'help', hint: 'keyboard reference' },
   { name: 'quit', hint: 'exit cockpit' },
@@ -130,6 +131,7 @@ function App({ port, onDone }) {
     if (m.name === 'status') { setView('status'); }
     else if (m.name === 'projects') { setView('projects'); setOpenProject(null); setPsel(0); }
     else if (m.name === 'usage') setView('usage');
+    else if (m.name === 'new') onDone({ action: 'new', cwd: process.cwd() });
     else if (m.name === 'help') setMode('help');
     else if (m.name === 'quit') onDone({ action: 'quit' });
   }
@@ -193,6 +195,7 @@ function App({ port, onDone }) {
     if (key.downArrow || input === 'j') return setSel(s => Math.min(flat.length - 1, s + 1));
     if (input === 'p') { setView('projects'); setOpenProject(null); setPsel(0); return; }
     if (input === 'u') { setView('usage'); return; }
+    if (input === 'n') return onDone({ action: 'new', cwd: process.cwd() });
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
     if (!cur) return;
     if (key.return) return onDone({ action: 'attach', cs: cur.cs, label: cur.name || '' });
@@ -210,7 +213,7 @@ function App({ port, onDone }) {
       ? (openProject ? '↵ open · esc back · q quit' : '↵ open project · esc status · q quit')
       : view === 'usage'
         ? 'r refresh · esc status · q quit'
-        : '↵ attach · r rename · x stop · h hand off · o open · p projects · u usage · / filter · : cmd · ? keys · q quit';
+        : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · : cmd · ? more';
 
   return html`<${Box} flexDirection="column" padding=${1}>
     <${Logo} />
@@ -272,7 +275,8 @@ function App({ port, onDone }) {
     ${mode === 'help' ? html`<${Box} flexDirection="column" marginTop=${1} borderStyle="round" borderColor=${ACCENT_DIM} paddingX=${1}>
         <${Text} bold color=${ACCENT}>Keys</${Text}>
         <${Text} color="gray">↑↓ / j k move   ↵ attach/open   : command   / filter</${Text}>
-        <${Text} color="gray">r rename  x stop  h hand off  o terminal  p projects  q quit</${Text}>
+        <${Text} color="gray">n new  r rename  x stop  h hand off  o terminal</${Text}>
+        <${Text} color="gray">p projects  u usage  ? keys  q quit</${Text}>
       </${Box}>` : null}
 
     <${SeatBar} seats=${st.seats} />
@@ -299,8 +303,8 @@ export async function startTui() {
   for (;;) {
     const r = await runApp(port);
     if (r && r.action === 'attach') { try { await attach(port, r.cs, { label: r.label || '' }); } catch {} continue; }
-    if (r && r.action === 'resume') {
-      try { const res = await request(port, 'POST', '/api/sessions', { resumeId: r.resumeId, cwd: r.cwd, ...termSize() }); if (res.status === 200 && res.body?.cs) await attach(port, res.body.cs, { label: r.label || '' }); } catch {}
+    if (r && (r.action === 'resume' || r.action === 'new')) {
+      try { const res = await request(port, 'POST', '/api/sessions', { resumeId: r.resumeId || undefined, cwd: r.cwd, ...termSize() }); if (res.status === 200 && res.body?.cs) await attach(port, res.body.cs, { label: r.label || '' }); else if (res.body?.error) process.stderr.write('cockpit: ' + res.body.error + '\n'); } catch {}
       continue;
     }
     break;
