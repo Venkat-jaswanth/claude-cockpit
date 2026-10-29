@@ -196,51 +196,57 @@ const QUICK = [
   { icon: '◎', name: 'Explain this project', text: 'Give me a tour of this codebase: the structure, the main modules, and how they fit together.' },
 ];
 function ovQuickLaunch() {
-  const best = bestSeat(); const items = QUICK.concat(cmds().map(c => ({ icon: '»', name: c.name, text: c.text })));
-  return `<div class="section"><div class="card-head"><h2>Quick launch</h2><a href="#/settings" class="tiny">Edit commands</a></div>
-    <div class="grid auto ql-grid">${items.slice(0, 8).map(it => `<button class="card qcard lift" data-qltext="${esc(it.text)}">
+  const best = bestSeat(), mine = cmds();
+  // Your own saved commands drive this. When you have none, show the built-ins as starters to launch or replace.
+  const items = mine.length ? mine.map((c, i) => ({ icon: '»', name: c.name, text: c.text, i })) : QUICK.map(q => ({ ...q, sample: true }));
+  const cards = items.slice(0, 11).map(it => `<button class="card qcard lift${it.sample ? ' sample' : ''}" data-qltext="${esc(it.text)}">
+      ${it.i != null ? `<span class="ql-del" data-ql-del="${it.i}" title="Remove this command">×</span>` : ''}
       <span class="qi">${it.icon}</span><span class="qt">${esc(it.name)}</span>
-      <span class="badge">→ ${esc(best ? best.name : 'best seat')}</span></button>`).join('')}</div></div>`;
+      <span class="badge">→ ${esc(best ? best.name : 'best seat')}</span></button>`).join('');
+  const add = `<button class="card qcard qadd" data-ql-add><span class="qi">+</span><span class="qt">New command</span><span class="tiny muted">save a prompt you reuse</span></button>`;
+  return `<div class="section"><div class="card-head"><h2>Quick launch</h2><a class="tiny" data-ql-add href="#/settings">Manage</a></div>
+    <div class="grid auto ql-grid">${cards}${add}</div>${mine.length ? '' : '<div class="tiny muted" style="margin-top:8px">Examples — add your own and these make way.</div>'}</div>`;
 }
 function ovRunway() {
-  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null);
+  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
   if (seats.length < 1) return '';
   return `<div class="section"><div class="card-head"><h2>Runway</h2><span class="tiny muted">how long each account lasts at this pace</span></div>
-    <div class="grid auto">${seats.map(s => { const fh = s.usage.fiveHour, r = runwayFor(s), sp = sparkPaths(s.name, fh.pct), c = r.kind === 'unknown' ? 'faint' : r.kind;
+    <div class="grid auto">${seats.map(s => { const fh = s.usage.fiveHour || {}, r = runwayFor(s), sp = sparkPaths(s.name, fh.pct), c = r.kind === 'unknown' ? 'faint' : r.kind;
       return `<div class="card runway lift">
-        <div class="top"><div><div class="nm">${esc(s.name)}</div><div class="eta">${esc(r.text)}</div></div><div class="now num">${fh.pct}% now</div></div>
+        <div class="top"><div><div class="nm">${esc(s.name)}</div><div class="eta">${esc(r.text)}</div></div><div class="now num">${fh.pct == null ? '–' : fh.pct + '%'} now</div></div>
         <svg class="spark" viewBox="0 0 100 40" preserveAspectRatio="none" style="color:var(--${c})"><path class="area" d="${sp.area}"/><path class="line" pathLength="1" d="${sp.line}"/></svg>
         <div class="tiny muted">${esc(r.sub)}${fh.resetsAt && until(fh.resetsAt) ? ' · resets in ' + until(fh.resetsAt) : ''}</div>
       </div>`; }).join('')}</div></div>`;
 }
 function ovResets() {
   const FIVE = 5 * 3600e3;
-  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.resetsAt && !s.usage.fiveHour.assumedReset);
+  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
   if (!seats.length) return '';
-  const rows = seats.map(s => { const fh = s.usage.fiveHour, ms = new Date(fh.resetsAt).getTime() - Date.now(), frac = Math.max(0, Math.min(1, 1 - ms / FIVE)), c = lvl(fh.pct) === 'unknown' ? 'faint' : lvl(fh.pct);
-    const when = new Date(fh.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }), u = until(fh.resetsAt);
-    return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(frac * 100)}%;background:var(--${c})"></div></div><span class="rt">${u ? `${when} · ${u}` : 'resetting'}</span></div>`; }).join('');
+  const rows = seats.map(s => { const fh = s.usage.fiveHour || {};
+    if (!fh.resetsAt || fh.assumedReset || until(fh.resetsAt) === null) return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"></div><span class="rt faint">no active window</span></div>`;
+    const ms = new Date(fh.resetsAt).getTime() - Date.now(), frac = Math.max(0.02, Math.min(1, 1 - ms / FIVE));
+    const when = new Date(fh.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(frac * 100)}%"></div></div><span class="rt">${when} · ${until(fh.resetsAt)}</span></div>`; }).join('');
   const weekly = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && (s.usage.weekly || []).length).map(s => { const w = s.usage.weekly.find(x => x.active) || s.usage.weekly[0]; return `${esc(s.name)} ${w.pct ?? '–'}%`; });
   return `<div class="section"><div class="card-head"><h2>Window resets</h2><span class="tiny muted">the 5-hour clock</span></div>
     <div class="card"><div class="wtl">${rows}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:14px">Weekly — ${weekly.join(' · ')}</div>` : ''}</div></div>`;
 }
 function ovCapacity() {
-  const head = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null).map(s => ({ s, h: Math.max(0, 100 - s.usage.fiveHour.pct) }));
+  const head = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null).map(s => ({ s, free: Math.max(0, 100 - s.usage.fiveHour.pct) }));
   if (head.length < 1) return '';
-  const ready = head.filter(x => x.h >= 40).length, total = head.reduce((a, x) => a + x.h, 0) || 1;
-  const cols = ['var(--accent)', 'var(--accent-soft)', 'color-mix(in srgb,var(--accent) 45%,var(--panel-2))', 'color-mix(in srgb,var(--accent) 25%,var(--panel-2))'];
-  const segs = head.map((x, i) => `<i style="width:${Math.round(x.h / total * 100)}%;background:${cols[i % cols.length]}"></i>`).join('');
-  const legend = head.map((x, i) => `<span><i style="background:${cols[i % cols.length]}"></i>${esc(x.s.name)} · ${Math.round(x.h)}% free</span>`).join('');
-  return `<div class="section"><div class="card-head"><h2>Capacity</h2><span class="tiny muted">what you can take on right now</span></div>
-    <div class="card planner">
-      <div class="cap-n"><div class="big" data-count="${ready}" data-countfmt="int">${ready}</div><div class="lead">account${ready === 1 ? '' : 's'} ready for work · the bar shows each seat's share of your combined headroom.</div></div>
-      <div class="seg"><div class="segbar">${segs}</div><div class="legend">${legend}</div></div>
+  const ready = head.filter(x => x.free >= 40).length;
+  const rows = head.slice().sort((a, b) => b.free - a.free).map(x => { const c = x.free >= 60 ? 'ok' : x.free >= 25 ? 'warn' : 'bad';
+    return `<div class="caprow"><span class="nm">${esc(x.s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(x.free)}%;background:var(--${c})"></div></div><span class="pct num">${Math.round(x.free)}%</span></div>`; }).join('');
+  return `<div class="section"><div class="card-head"><h2>Capacity</h2><span class="tiny muted">free headroom across your accounts</span></div>
+    <div class="card cap">
+      <div class="cap-hero"><div class="cap-big" data-count="${ready}" data-countfmt="int">${ready}</div><div class="cap-lbl">of ${head.length} account${head.length === 1 ? '' : 's'} ready for work right now</div></div>
+      <div class="cap-rows">${rows}</div>
     </div></div>`;
 }
 function ovToday() {
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
   const now = Date.now(), sess = state.sessions.filter(s => s.kind === 'claude' && s.managed && s.startedAt && s.startedAt >= dayStart.getTime());
-  if (!sess.length) return '';
+  if (!sess.length) return `<div class="section"><div class="card-head"><h2>Today</h2><span class="tiny muted">every session on one timeline</span></div><div class="card flat empty">No sessions yet today. They'll line up here as you start them.</div></div>`;
   const start = Math.min(Math.min(...sess.map(s => s.startedAt)), now - 3 * 3600e3), span = Math.max(1, now - start);
   const seats = [...new Set(sess.map(s => s.seat || '—'))];
   const lanes = seats.map(seat => { const blocks = sess.filter(s => (s.seat || '—') === seat).map(s => {
@@ -704,6 +710,8 @@ function wire(el) {
   el.querySelectorAll('[data-cmd-del]').forEach(b => b.onclick = () => { const l = cmds(); l.splice(+b.dataset.cmdDel, 1); saveCmds(l); render(); });
   el.querySelectorAll('[data-cmd-run]').forEach(b => b.onclick = () => { const c = cmds()[+b.dataset.cmdRun]; if (c) { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = c.text; nsForm.prompt.focus(); } }, 60); } });
   el.querySelectorAll('[data-qltext]').forEach(b => b.onclick = () => { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = b.dataset.qltext; nsForm.prompt.focus(); } }, 60); });
+  el.querySelectorAll('[data-ql-del]').forEach(b => b.onclick = e => { e.stopPropagation(); const l = cmds(); l.splice(+b.dataset.qlDel, 1); saveCmds(l); render(); });
+  el.querySelectorAll('[data-ql-add]').forEach(b => b.onclick = e => { e.preventDefault(); setView('settings'); setTimeout(() => { const i = $('#cmdName'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } }, 90); });
   const cmdAdd = el.querySelector('#cmdAdd'); if (cmdAdd) cmdAdd.onclick = () => { const n = el.querySelector('#cmdName').value.trim(), t = el.querySelector('#cmdText').value.trim(); if (!n || !t) return; const l = cmds(); l.push({ name: n, text: t }); saveCmds(l); render(); };
   const settings = el.querySelector('#settings');
   if (settings) {
