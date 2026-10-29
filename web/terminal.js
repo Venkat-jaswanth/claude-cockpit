@@ -28,10 +28,13 @@ function connect() {
   };
   ws.onclose = () => { if (!closedByServer) showOverlay('Disconnected', 'The daemon closed the connection. Reload to try again.'); };
 }
+function baseName(p) { return p ? (p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || '') : ''; }
 function renderInfo() {
   if (!info) return;
-  document.title = `${info.name || cs} · ${info.seat} · Claude Cockpit`;
-  $('#tname').textContent = info.name || cs;
+  // Prefer the session's name; fall back to its folder so the tab is readable, not a raw id.
+  const label = info.name || baseName(info.cwd) || cs;
+  document.title = `${label} · ${info.seat} · Claude Cockpit`;
+  $('#tname').textContent = label;
   $('#tseat').textContent = `seat ${info.seat}`;
   $('#tstatus').textContent = (info.status || '').replace('_', ' ');
   $('#tcwd').textContent = info.cwd || '';
