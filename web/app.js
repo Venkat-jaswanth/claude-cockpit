@@ -879,6 +879,12 @@ const wsCtl = {
     });
     this.rootEl.addEventListener('change', e => { const a = e.target.closest('[data-ws-add]'); if (a && a.value) { const v = a.value; a.value = ''; this.addPane(v); } });
     this.rootEl.addEventListener('pointerdown', e => { const g = e.target.closest('[data-wp-grip]'); if (g) { const cs = g.closest('.wp')?.dataset.cs; if (cs) this.startPaneDrag(cs, e); } });
+    this.rootEl.addEventListener('dblclick', e => { const nm = e.target.closest('.wp-name'); if (nm) { const cs = nm.closest('.wp')?.dataset.cs; if (cs) this.renamePane(cs); } });
+  },
+  renamePane(cs) {
+    const name = prompt('Rename this session (leave blank to use the default):', this.sessOf(cs)?.name || '');
+    if (name === null) return;
+    post(`/api/sessions/${encodeURIComponent(cs)}/rename`, { name: name.trim() }).then(() => { toast(name.trim() ? 'Renamed' : 'Name cleared'); setTimeout(load, 250); }).catch(() => {});
   },
   // Drag a pane by its grip to a new slot. Nodes are re-ordered in place, so terminals keep their connection.
   startPaneDrag(cs, e) {
@@ -926,7 +932,7 @@ const wsCtl = {
       <div class="wp-head">
         <span class="wp-grip" data-wp-grip title="Drag to rearrange"><i></i><i></i><i></i><i></i><i></i><i></i></span>
         <span class="dot ${esc(s.status || 'idle')}"></span>
-        <span class="wp-name">${esc(s.name || cs)}</span>
+        <span class="wp-name" title="Double-click to rename">${esc(s.name || cs)}</span>
         <span class="wp-seat"><span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s.seat || '?')}${p != null ? ` ${p}%` : ''}</span>
         <span class="wp-spacer"></span>
         <button class="btn sm" data-wp="handoff" title="Move to the freshest seat">Hand off</button>
@@ -1055,6 +1061,7 @@ const wsCtl = {
     const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
     node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '') + (node.classList.contains('wp-hidden') ? ' wp-hidden' : '');
     const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
+    const nm = node.querySelector('.wp-name'); if (nm && s) nm.textContent = s.name || cs;
     const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
     const se = node.querySelector('.wp-seat'); if (se) se.innerHTML = `<span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s?.seat || '?')}${p != null ? ` ${p}%` : ''}`;
     const mx = node.querySelector('[data-wp="max"]'); if (mx) mx.textContent = this.focus === cs ? '❏' : '⤢';
