@@ -29,7 +29,7 @@ import { seatByName, makeProfileSeat, seedProfile, installHooks, uninstallHooks,
 import { sleep } from './paths.js';
 import { SessionManager } from './sessions.js';
 import { scanLibrary, findStored, recentProjects, searchTranscripts } from './library.js';
-import { setMark, allTags } from './marks.js';
+import { setMark, getMark, allTags } from './marks.js';
 import { readUsageDelta, lastCostState, EMPTY, add, totalTokens } from './tokens.js';
 
 const require = createRequire(import.meta.url);
@@ -493,7 +493,7 @@ function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, 
       cwdResolved = worktreePath;
     } catch (e) { throw new Error(`could not create a git worktree: ${String(e.message).split('\n')[0]}`); }
   }
-  const s = newSession({ cwd: cwdResolved, seat: seat.name, name: name || (stored ? (stored.customTitle || null) : null), managed: true, sessionId: wantId, resume: !!resumeId, extra: Array.isArray(extra) ? extra.map(String) : [] });
+  const s = newSession({ cwd: cwdResolved, seat: seat.name, name: name || (wantId ? getMark(wantId)?.name : null) || (stored ? (stored.customTitle || null) : null), managed: true, sessionId: wantId, resume: !!resumeId, extra: Array.isArray(extra) ? extra.map(String) : [] });
   if (worktreePath) { s.worktree = worktreePath; s.worktreeRepo = worktreeRepo; }
   if (initialPrompt) s.continuation = String(initialPrompt);
   manager.spawn(s, seat, { cols, rows });
