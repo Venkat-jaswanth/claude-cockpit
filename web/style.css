@@ -541,6 +541,17 @@ body.ws-dragging-col, body.ws-dragging-col * { cursor: col-resize !important; us
 body.ws-dragging-row, body.ws-dragging-row * { cursor: row-resize !important; user-select: none !important; }
 :root[data-motion="reduced"] .ws-gutter .grip { transition: none; }
 
+/* drag handle to rearrange panes */
+.wp-grip { display: grid; grid-template-columns: repeat(2, 3px); gap: 3px; padding: 2px; cursor: grab; opacity: .4; transition: opacity 140ms ease; flex: none; }
+.wp-grip:hover { opacity: .85; }
+.wp-grip:active { cursor: grabbing; }
+.wp-grip i { width: 3px; height: 3px; border-radius: 50%; background: var(--muted); }
+.wp.wp-dragging-src { opacity: .4; }
+.wp.wp-drop-before { box-shadow: inset 3px 0 0 0 var(--accent), var(--shadow); }
+.wp.wp-drop-after { box-shadow: inset -3px 0 0 0 var(--accent), var(--shadow); }
+.wp-ghost { position: fixed; z-index: 100; pointer-events: none; transform: translate(12px, 12px); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 9px; box-shadow: var(--shadow-lift); padding: 7px 13px; font-size: 12.5px; font-weight: 600; color: var(--text); }
+body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-select: none !important; }
+
 /* per-pane remove/stop menu */
 .wp-close-wrap { position: relative; display: inline-flex; }
 .wp-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 210px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 11px; box-shadow: var(--shadow-lift); padding: 5px; display: flex; flex-direction: column; gap: 2px; animation: popIn 160ms var(--ease-out) both; }
