@@ -99,6 +99,26 @@ async function renameEverywhere({ cs, sessionId, name }) {
   setTimeout(() => { load(); loadSlow(); }, 200);
   return nm;
 }
+// Turn a name element into an in-place text field. Enter/blur saves, Esc cancels. `lock`/`unlock`
+// pause the surrounding re-render so a background poll can't wipe the field mid-edit.
+function inlineRename(nameEl, { current, onCommit, lock, unlock }) {
+  if (!nameEl || nameEl.querySelector('input')) return;
+  lock && lock();
+  const input = document.createElement('input');
+  input.className = 'rename-input'; input.value = current || ''; input.spellcheck = false;
+  nameEl.replaceChildren(input); input.focus(); input.select();
+  let done = false;
+  const end = save => {
+    if (done) return; done = true;
+    const v = input.value.trim();
+    nameEl.textContent = (save && v) ? v : (current || '');
+    unlock && unlock();
+    if (save) onCommit(v);
+  };
+  input.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); end(true); } else if (e.key === 'Escape') { e.preventDefault(); end(false); } });
+  input.addEventListener('blur', () => end(true));
+  input.addEventListener('click', e => e.stopPropagation());
+}
 function bar(label, pct, right, cls) {
   const p = pct == null ? 0 : Math.min(100, pct);
   return `<div class="bar"><div class="lbl"><span>${esc(label)}</span><span>${esc(right || '')}</span></div><div class="track"><div class="fill ${cls || lvl(pct)}" style="width:${pct == null ? 100 : p}%"></div></div><span class="pct">${pct == null ? '–' : pct + '%'}</span></div>`;
@@ -324,7 +344,7 @@ function sessionRow(s) {
   else if (s.managed && s.alive) actions = `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open in Terminal</button><button class="btn sm" data-act="web" data-cs="${esc(s.cs)}">View</button><select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(s.seat)}</select><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`;
   else if (s.managed && !s.alive) actions = `<select class="sel sm" data-pick="${esc(s.cs)}">${seatOptions(null)}</select><button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume in Terminal</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Forget</button>`;
   return `<tr>
-    <td><div style="font-weight:500">${esc(s.name || s.cs)}${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}${s.worktree ? ' <span class="badge" title="isolated git worktree">worktree</span>' : ''}${s.managed ? ` <button class="iconbtn" data-srename="${esc(s.cs)}" data-sid="${esc(s.sessionId || '')}" data-cur="${esc(s.name || '')}" title="Rename this session">✎</button>` : ''}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
+    <td><div style="font-weight:500"><span class="srow-name"${s.managed ? ` data-cs="${esc(s.cs)}" data-sid="${esc(s.sessionId || '')}" data-cur="${esc(s.name || '')}" title="Double-click to rename"` : ''}>${esc(s.name || s.cs)}</span>${s.managed ? '' : ' <span class="badge">outside cockpit</span>'}${s.worktree ? ' <span class="badge" title="isolated git worktree">worktree</span>' : ''}${s.managed ? ` <button class="iconbtn" data-ren-btn title="Rename this session">✎</button>` : ''}</div><div class="tiny muted mono">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div></td>
     <td>${esc(s.seat || '?')}${s.handoffs?.length ? `<div class="tiny muted">was ${esc(s.handoffs[s.handoffs.length - 1].from)}</div>` : ''}</td>
     <td><span class="dot ${esc(s.status)}"></span>${esc(s.status.replace('_', ' '))}${s.pendingHandoff ? ` <span class="badge warn">→ ${esc(s.pendingHandoff.to)} queued</span>` : ''}${s.viewers ? `<div class="tiny muted">${s.viewers} window${s.viewers === 1 ? '' : 's'} open</div>` : ''}</td>
     <td class="r">${s.turns ?? 0}</td><td class="r">${s.handoffs?.length ?? 0}</td>
@@ -356,7 +376,7 @@ function libRow(r, liveIds) {
     <input type="checkbox" class="lcheck" data-check="${esc(r.sessionId)}" ${selected.has(r.sessionId) ? 'checked' : ''} aria-label="Select">
     <button class="star ${r.star ? 'on' : ''}" data-star="${esc(r.sessionId)}" data-on="${r.star ? 1 : 0}" title="${r.star ? 'Unstar' : 'Star'}">${r.star ? '★' : '☆'}</button>
     <div class="grow" style="min-width:0">
-      <div class="title">${esc(r.title)}${r.customName ? ' <span class="badge" title="Renamed; original: ' + esc(r.autoTitle || '') + '">renamed</span>' : ''}${liveIds.has(r.sessionId) ? ' <span class="badge ok">running</span>' : ''} <button class="iconbtn" data-rename="${esc(r.sessionId)}" data-cur="${esc(r.customName || r.title)}" title="Rename this session">✎</button><button class="iconbtn" data-project="${esc(r.sessionId)}" data-cur="${esc(r.customProject || '')}" title="Move to a project">⊞</button>${r.customProject ? ` <span class="badge" title="Manually placed in this project">in ${esc(r.customProject)}</span>` : ''}</div>
+      <div class="title"><span class="lrow-name" data-sid="${esc(r.sessionId)}" data-cur="${esc(r.customName || r.title)}" title="Double-click to rename">${esc(r.title)}</span>${r.customName ? ' <span class="badge" title="Renamed; original: ' + esc(r.autoTitle || '') + '">renamed</span>' : ''}${liveIds.has(r.sessionId) ? ' <span class="badge ok">running</span>' : ''} <button class="iconbtn" data-rename="${esc(r.sessionId)}" title="Rename this session">✎</button><button class="iconbtn" data-project="${esc(r.sessionId)}" data-cur="${esc(r.customProject || '')}" title="Move to a project">⊞</button>${r.customProject ? ` <span class="badge" title="Manually placed in this project">in ${esc(r.customProject)}</span>` : ''}</div>
       <div class="tiny muted" title="${esc(r.lastPrompt || r.firstPrompt || '')}">${esc((r.lastPrompt || r.firstPrompt || '').replace(/\s+/g, ' ').slice(0, 110))}</div>
       <div class="tags">${tagChips(r)}${r.gitBranch ? `<span class="tiny muted" style="margin-left:4px">${esc(r.gitBranch)}</span>` : ''}</div>
     </div>
@@ -662,8 +682,12 @@ function wire(el) {
   el.querySelectorAll('[data-star]').forEach(b => b.onclick = async () => { await post(`/api/marks/${encodeURIComponent(b.dataset.star)}`, { star: b.dataset.on !== '1' }); await loadSlow(); });
   el.querySelectorAll('[data-untag]').forEach(b => b.onclick = async ev => { ev.stopPropagation(); await post(`/api/marks/${encodeURIComponent(b.dataset.untag)}`, { removeTag: b.dataset.tagval }); await loadSlow(); });
   el.querySelectorAll('[data-addtag]').forEach(b => b.onclick = async () => { const t = prompt('Add a tag (e.g. "release", "bug", "client-x"):'); if (t && t.trim()) { await post(`/api/marks/${encodeURIComponent(b.dataset.addtag)}`, { addTag: t.trim() }); await loadSlow(); } });
-  el.querySelectorAll('[data-rename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to restore the original title):', b.dataset.cur || ''); if (name === null) return; const sid = b.dataset.rename; const live = (state?.sessions || []).find(x => x.sessionId === sid && x.alive); const nm = await renameEverywhere({ cs: live?.cs, sessionId: sid, name }); toast(nm ? 'Renamed' : 'Original title restored'); });
-  el.querySelectorAll('[data-srename]').forEach(b => b.onclick = async () => { const name = prompt('Rename this session (leave blank to use the default):', b.dataset.cur || ''); if (name === null) return; const nm = await renameEverywhere({ cs: b.dataset.srename, sessionId: b.dataset.sid, name }); toast(nm ? 'Renamed' : 'Name cleared'); });
+  const startSRename = span => inlineRename(span, { current: span.dataset.cur, lock: () => dirtyForms.add('sessions'), unlock: () => dirtyForms.delete('sessions'), onCommit: v => renameEverywhere({ cs: span.dataset.cs, sessionId: span.dataset.sid, name: v }).then(nm => toast(nm ? 'Renamed' : 'Name cleared')) });
+  el.querySelectorAll('.srow-name[data-cs]').forEach(span => span.ondblclick = () => startSRename(span));
+  el.querySelectorAll('[data-ren-btn]').forEach(b => b.onclick = () => { const span = b.closest('td')?.querySelector('.srow-name[data-cs]'); if (span) startSRename(span); });
+  const startLibRename = span => inlineRename(span, { current: span.dataset.cur, lock: () => dirtyForms.add('library'), unlock: () => dirtyForms.delete('library'), onCommit: v => { const sid = span.dataset.sid, live = (state?.sessions || []).find(x => x.sessionId === sid && x.alive); renameEverywhere({ cs: live?.cs, sessionId: sid, name: v }).then(nm => toast(nm ? 'Renamed' : 'Original title restored')); } });
+  el.querySelectorAll('.lrow-name[data-sid]').forEach(span => span.ondblclick = () => startLibRename(span));
+  el.querySelectorAll('[data-rename]').forEach(b => b.onclick = () => { const span = b.closest('.title')?.querySelector('.lrow-name[data-sid]'); if (span) startLibRename(span); });
   el.querySelectorAll('[data-project]').forEach(b => b.onclick = async () => {
     const existing = [...new Set(library.map(r => r.projectName).filter(Boolean))].sort();
     const hint = existing.length ? '\n\nExisting projects:\n• ' + existing.slice(0, 20).join('\n• ') : '';
@@ -855,7 +879,7 @@ class WsPane {
   dispose() { try { this.ws && this.ws.close(); } catch {} try { this.term && this.term.dispose(); } catch {} }
 }
 const wsCtl = {
-  panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null,
+  panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null, editingCs: null,
   colFr: [], rowFr: [], handles: [], _cols: 0, _rows: 0, _vsig: '', MINROW: 240,
   built: false, rootEl: null, grid: null, bar: null, barSig: '',
   load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowFr = Array.isArray(s.rowFr) ? s.rowFr : []; } catch {} },
@@ -891,9 +915,9 @@ const wsCtl = {
     this.rootEl.addEventListener('dblclick', e => { const nm = e.target.closest('.wp-name'); if (nm) { const cs = nm.closest('.wp')?.dataset.cs; if (cs) this.renamePane(cs); } });
   },
   renamePane(cs) {
-    const s = this.sessOf(cs); const name = prompt('Rename this session (leave blank to use the default):', s?.name || '');
-    if (name === null) return;
-    renameEverywhere({ cs, sessionId: s?.sessionId, name }).then(nm => toast(nm ? 'Renamed' : 'Name cleared')).catch(() => {});
+    const pane = this.panes.get(cs), nameEl = pane && pane.node.querySelector('.wp-name'); if (!nameEl) return;
+    const s = this.sessOf(cs);
+    inlineRename(nameEl, { current: s?.name || '', lock: () => { this.editingCs = cs; }, unlock: () => { this.editingCs = null; }, onCommit: v => renameEverywhere({ cs, sessionId: s?.sessionId, name: v }).then(nm => toast(nm ? 'Renamed' : 'Name cleared')).catch(() => {}) });
   },
   // Drag a pane by its grip to a new slot. Nodes are re-ordered in place, so terminals keep their connection.
   startPaneDrag(cs, e) {
@@ -1070,7 +1094,7 @@ const wsCtl = {
     const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
     node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '') + (node.classList.contains('wp-hidden') ? ' wp-hidden' : '');
     const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
-    const nm = node.querySelector('.wp-name'); if (nm && s) nm.textContent = s.name || cs;
+    const nm = node.querySelector('.wp-name'); if (nm && s && this.editingCs !== cs) nm.textContent = s.name || cs;
     const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
     const se = node.querySelector('.wp-seat'); if (se) se.innerHTML = `<span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s?.seat || '?')}${p != null ? ` ${p}%` : ''}`;
     const mx = node.querySelector('[data-wp="max"]'); if (mx) mx.textContent = this.focus === cs ? '❏' : '⤢';
