@@ -157,12 +157,16 @@ function attnItems() {
 }
 function vOverview() {
   if (!state.seats.length) return onboarding();
-  const running = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed);
+  const live = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed);
+  const attn = attnItems();
+  // Each session shows in exactly one place: if it is in the attention queue (ready, stalled,
+  // crashed, queued handoff, …) it is not also listed under "Running now".
+  const attnCs = new Set(attn.map(a => a.cs).filter(Boolean));
+  const running = live.filter(s => !attnCs.has(s.cs));
   const outside = state.sessions.filter(s => s.alive && s.kind === 'claude' && !s.managed);
   const t = usage?.today?.total;
   const best = bestSeat(); const bp = best ? seatPct(best) : null;
   const chip = s => { const p = seatPct(s); return `<div class="seatchip ${s.disabled ? 'off' : ''}"><span class="ring sm" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})" data-label="${p == null ? '–' : p + '%'}"></span><span class="sc-name">${esc(s.name)}</span></div>`; };
-  const attn = attnItems();
   const attnShown = attn.slice(0, 10), attnMore = attn.length - attnShown.length;
   const attnHtml = attn.length
     ? `<div class="attn">${attnShown.map(a => `<div class="attn-item ${a.sev}"><div class="ai-ico">${a.ico}</div><div class="grow"><div class="ai-title">${a.title}</div><div class="ai-sub">${a.sub}</div></div><div class="actions">${a.action}</div></div>`).join('')}${attnMore > 0 ? `<div class="attn-more tiny muted">+${attnMore} more</div>` : ''}</div>`
@@ -173,7 +177,9 @@ function vOverview() {
         <div class="sc-path mono tiny muted">${esc(short(s.cwd || ''))}${s.git && s.git.branch ? ` · ${gitInline(s.git)}` : ''}</div>
         <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
       </div>`).join('')}</div>`
-    : `<div class="card flat empty big">Nothing running yet. Press <b>New session</b> to start one, or resume a conversation from <a href="#/library">Projects</a>.</div>`;
+    : live.length
+      ? `<div class="card flat empty">Every live session is waiting on you — see <b>Needs you</b> above.</div>`
+      : `<div class="card flat empty big">Nothing running yet. Press <b>New session</b> to start one, or resume a conversation from <a href="#/library">Projects</a>.</div>`;
   const outsideNote = outside.length ? `<div class="tiny muted" style="margin-top:10px">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit (started with plain <code>claude</code>). <a href="#/sessions">Show</a></div>` : '';
   const budget = usage?.budgetMonthlyUSD || 0, monthCost = usage?.month?.total?.cost || 0;
   const budgetMini = budget > 0 ? `<div style="margin-top:14px">${bar('This month', Math.min(100, Math.round(monthCost / budget * 100)), `${fmtCost(monthCost)} of ${fmtCost(budget)}`, monthCost / budget >= 1 ? 'bad' : monthCost / budget >= 0.8 ? 'warn' : 'ok')}</div>` : '';
