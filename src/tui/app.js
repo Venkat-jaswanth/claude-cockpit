@@ -119,6 +119,7 @@ function App({ port, onDone }) {
   const [botPending, setBotPending] = useState(false);
   const [botConvId, setBotConvId] = useState(null);
   const [connErr, setConnErr] = useState(false);
+  const [usel, setUsel] = useState(0);            // usage view: selected seat
 
   useEffect(() => {
     let alive = true;
@@ -144,6 +145,8 @@ function App({ port, onDone }) {
   const _liveSeats = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
   const bestName = _liveSeats.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0]?.name;
   const seatColOf = name => { const i = (st?.seats || []).findIndex(z => z.name === name); return SEAT_COLORS[(i < 0 ? 0 : i) % SEAT_COLORS.length]; };
+  const usageSeats = (st?.seats || []).filter(s => !s.disabled);
+  const curUsageSeat = usageSeats[Math.min(usel, usageSeats.length - 1)] || null;
 
   // ---- derived lists per view ----
   const groups = st ? group(shownSessions(st), mode === 'filter' ? buf : filter) : [];
@@ -237,7 +240,13 @@ function App({ port, onDone }) {
     // ---- usage view ----
     if (view === 'usage') {
       if (key.escape) { setView('status'); return; }
+      if (key.upArrow || input === 'k') return setUsel(x => Math.max(0, x - 1));
+      if (key.downArrow || input === 'j') return setUsel(x => Math.min(usageSeats.length - 1, x + 1));
       if (input === 'r') { post('/api/probe-all'); flash('refreshing all seats…'); return; }
+      if (curUsageSeat) {
+        if (input === 'c') { post(`/api/seats/${encodeURIComponent(curUsageSeat.name)}/probe`); flash('checking ' + curUsageSeat.name); }
+        else if (input === 'w') { post(`/api/seats/${encodeURIComponent(curUsageSeat.name)}/arm`); flash('arming ' + curUsageSeat.name); }
+      }
       return;
     }
     // ---- activity view ----
@@ -270,7 +279,7 @@ function App({ port, onDone }) {
     : view === 'projects'
       ? (openProject ? '↵ open · esc back · q quit' : '↵ open project · esc status · q quit')
       : view === 'usage'
-        ? 'r refresh · esc status · q quit'
+        ? '↑↓ select · c check · w arm window · r refresh all · esc'
         : view === 'activity'
           ? 'esc status · q quit'
           : view === 'bot'
@@ -314,9 +323,10 @@ function App({ port, onDone }) {
 
     ${view === 'usage' ? html`<${Box} flexDirection="column">
       <${Box} marginBottom=${1}><${Text} bold>Usage</${Text}><${Text} color="gray">${st.probing ? '   refreshing…' : '   5-hour windows'}</${Text}></${Box}>
-      ${(st.seats || []).filter(s => !s.disabled).map(s => { const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0);
+      ${usageSeats.map((s, i) => { const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0); const on = i === Math.min(usel, usageSeats.length - 1);
         return html`<${Box} key=${s.name}>
-          <${Box} width=${12}><${Text} bold=${s.name === bestName} wrap="truncate-end">${s.name}</${Text}></${Box}>
+          <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
+          <${Box} width=${12}><${Text} color=${on ? 'white' : undefined} bold=${s.name === bestName || on} wrap="truncate-end">${s.name}</${Text}></${Box}>
           ${!u.loggedIn ? html`<${Text} color="red">not logged in</${Text}>` : html`<${Box}>
             <${Text} color=${pctColor(p)}>${meter(p)}</${Text}>
             <${Box} width=${6}><${Text} color=${pctColor(p)}> ${p == null ? '–' : p + '%'}</${Text}></${Box}>
