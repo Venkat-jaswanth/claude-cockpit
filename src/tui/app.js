@@ -15,6 +15,8 @@ import { attach } from '../attach.js';
 const html = htm.bind(React.createElement);
 const ACCENT = '#5eead4';          // teal — cockpit's terminal accent (refined in the brand pass)
 const ACCENT_DIM = '#2f6f69';
+const SEAT_COLORS = ['#5eead4', '#f0abfc', '#fca5a5', '#fcd34d', '#7dd3fc', '#c4b5fd', '#86efac', '#fdba74'];  // one stable colour per seat
+const evColor = t => /error|exhausted|crash/.test(t) ? 'red' : /limit|handoff|threshold|recommend|queued|lost/.test(t) ? 'yellow' : /start|resumed|usage|arm|restore/.test(t) ? 'green' : 'gray';
 
 function projOf(s) { const cwd = s.cwd || ''; if (/scratch-workspaces/.test(cwd)) return 'scratch'; return (cwd ? path.basename(cwd) : 'unknown') || 'unknown'; }
 const pctColor = p => p == null ? 'gray' : p >= 85 ? 'red' : p >= 60 ? 'yellow' : 'green';
@@ -36,6 +38,7 @@ const VERBS = [
   { name: 'projects', hint: 'browse every project' },
   { name: 'new', hint: 'start a session in this folder' },
   { name: 'usage', hint: 'account usage & limits' },
+  { name: 'activity', hint: 'recent events log' },
   { name: 'ask', hint: 'chat with the cockpit assistant' },
   { name: 'help', hint: 'keyboard reference' },
   { name: 'quit', hint: 'exit cockpit' },
@@ -73,12 +76,13 @@ function SeatBar({ seats }) {
   const live = (seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
   if (!live.length) return html`<${Box} marginTop=${1}><${Text} color="gray">no seats logged in</${Text}></${Box}>`;
   const best = live.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0];
+  const col = n => SEAT_COLORS[Math.max(0, (seats || []).findIndex(x => x.name === n)) % SEAT_COLORS.length];
   return html`<${Box} marginTop=${1}>
     <${Text} color="gray">seats  </${Text}>
     ${live.map((s, i) => { const p = s.usage.fiveHour?.pct; const r = resetsIn(s.usage.fiveHour?.resetsAt);
       return html`<${Box} key=${s.name}>
         ${i ? html`<${Text} color="gray">${'  ·  '}</${Text}>` : null}
-        <${Text} bold=${s.name === best.name}>${s.name}</${Text}>
+        <${Text} color=${col(s.name)} bold=${s.name === best.name}>${s.name}</${Text}>
         <${Text} color="gray"> </${Text}><${Text} color=${pctColor(p)}>${p == null ? '–' : p + '%'}</${Text}>
         ${r ? html`<${Text} color="gray"> ${r}</${Text}>` : null}
       </${Box}>`; })}
@@ -86,12 +90,12 @@ function SeatBar({ seats }) {
   </${Box}>`;
 }
 
-function Row({ s, selected }) {
+function Row({ s, selected, seatCol }) {
   return html`<${Box}>
     <${Text} color=${ACCENT}>${selected ? '› ' : '  '}</${Text}>
     <${Text} color=${dotColor(s)}>${'● '}</${Text}>
     <${Box} width=${30}><${Text} color=${selected ? 'white' : undefined} bold=${selected} wrap="truncate-end">${s.name || s.cs}</${Text}></${Box}>
-    <${Box} width=${12}><${Text} color="gray" wrap="truncate-end">${s.seat || '?'}</${Text}></${Box}>
+    <${Box} width=${12}><${Text} color=${seatCol || 'gray'} wrap="truncate-end">${s.seat || '?'}</${Text}></${Box}>
     <${Box} width=${10}><${Text} color=${dotColor(s)}>${(s.status || '').replace('_', ' ')}</${Text}></${Box}>
     <${Box} width=${6}><${Text} color="gray">${(s.turns ?? 0) + 't'}</${Text}></${Box}>
     <${Box} width=${6}><${Text} color="gray">${ago(s.lastActivity)}</${Text}></${Box}>
@@ -114,10 +118,11 @@ function App({ port, onDone }) {
   const [botBuf, setBotBuf] = useState('');
   const [botPending, setBotPending] = useState(false);
   const [botConvId, setBotConvId] = useState(null);
+  const [connErr, setConnErr] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    const tick = async () => { try { const r = await request(port, 'GET', '/api/state'); if (alive) setSt(r.body); } catch {} };
+    const tick = async () => { try { const r = await request(port, 'GET', '/api/state'); if (alive) { setSt(r.body); setConnErr(false); } } catch { if (alive) setConnErr(true); } };
     const tickLib = async () => { try { const r = await request(port, 'GET', '/api/library'); if (alive) setLib(r.body?.sessions || []); } catch {} };
     tick(); tickLib();
     const a = setInterval(tick, 2000), b = setInterval(tickLib, 8000);
@@ -138,6 +143,7 @@ function App({ port, onDone }) {
   const liveBySid = new Map((st?.sessions || []).filter(s => s.alive).map(s => [s.sessionId, s]));
   const _liveSeats = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
   const bestName = _liveSeats.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0]?.name;
+  const seatColOf = name => { const i = (st?.seats || []).findIndex(z => z.name === name); return SEAT_COLORS[(i < 0 ? 0 : i) % SEAT_COLORS.length]; };
 
   // ---- derived lists per view ----
   const groups = st ? group(shownSessions(st), mode === 'filter' ? buf : filter) : [];
@@ -164,6 +170,7 @@ function App({ port, onDone }) {
     if (m.name === 'status') { setView('status'); }
     else if (m.name === 'projects') { setView('projects'); setOpenProject(null); setPsel(0); }
     else if (m.name === 'usage') setView('usage');
+    else if (m.name === 'activity') setView('activity');
     else if (m.name === 'new') onDone({ action: 'new', cwd: process.cwd() });
     else if (m.name === 'ask') setView('bot');
     else if (m.name === 'help') setMode('help');
@@ -233,12 +240,15 @@ function App({ port, onDone }) {
       if (input === 'r') { post('/api/probe-all'); flash('refreshing all seats…'); return; }
       return;
     }
+    // ---- activity view ----
+    if (view === 'activity') { if (key.escape) setView('status'); return; }
 
     // ---- status view ----
     if (key.upArrow || input === 'k') return setSel(s => Math.max(0, s - 1));
     if (key.downArrow || input === 'j') return setSel(s => Math.min(flat.length - 1, s + 1));
     if (input === 'p') { setView('projects'); setOpenProject(null); setPsel(0); return; }
     if (input === 'u') { setView('usage'); return; }
+    if (input === 'l') { setView('activity'); return; }
     if (input === 'a') { setView('bot'); return; }
     if (input === 'n') return onDone({ action: 'new', cwd: process.cwd() });
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
@@ -250,7 +260,10 @@ function App({ port, onDone }) {
     else if (input === 'h') { post(`/api/sessions/${encodeURIComponent(cur.cs)}/handoff`, { toSeat: null }); flash('handing off ' + (cur.name || cur.cs)); }
   });
 
-  if (!st) return html`<${Box} padding=${1}><${Text} color=${ACCENT}>❯ connecting to the cockpit daemon…</${Text}></${Box}>`;
+  if (!st) return html`<${Box} padding=${1} flexDirection="column">
+    <${Text} color=${connErr ? 'red' : ACCENT}>${connErr ? '⚠ can’t reach the cockpit daemon' : '❯ connecting to the cockpit daemon…'}</${Text}>
+    ${connErr ? html`<${Text} color="gray">Start it in a terminal:  cockpit daemon start</${Text}>` : null}
+  </${Box}>`;
 
   // ---- render ----
   const footer = mode === 'cmd' ? null
@@ -258,9 +271,11 @@ function App({ port, onDone }) {
       ? (openProject ? '↵ open · esc back · q quit' : '↵ open project · esc status · q quit')
       : view === 'usage'
         ? 'r refresh · esc status · q quit'
-        : view === 'bot'
-          ? 'type a message · ↵ send · esc leave'
-          : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · a ask · : cmd · ? more';
+        : view === 'activity'
+          ? 'esc status · q quit'
+          : view === 'bot'
+            ? 'type a message · ↵ send · esc leave'
+            : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · l log · a ask · : cmd · ?';
 
   return html`<${Box} flexDirection="column" padding=${1}>
     <${Logo} />
@@ -274,7 +289,7 @@ function App({ port, onDone }) {
       ${flat.length === 0 ? html`<${Text} color="gray">No running sessions. Start one with ${'`cockpit start`'}, or press ${'p'} to browse projects.</${Text}>`
         : groups.map(g => html`<${Box} key=${g.project} flexDirection="column" marginBottom=${1}>
             <${Text} color=${ACCENT} bold>${g.project} <${Text} color="gray">· ${g.items.length}</${Text}></${Text}>
-            ${g.items.map(s => html`<${Row} key=${s.cs} s=${s} selected=${cur && s.cs === cur.cs} />`)}
+            ${g.items.map(s => html`<${Row} key=${s.cs} s=${s} selected=${cur && s.cs === cur.cs} seatCol=${seatColOf(s.seat)} />`)}
           </${Box}>`)}
     </${Box}>` : null}
 
@@ -312,6 +327,16 @@ function App({ port, onDone }) {
         </${Box}>`; })}
     </${Box}>` : null}
 
+    ${view === 'activity' ? html`<${Box} flexDirection="column">
+      <${Box} marginBottom=${1}><${Text} bold>Activity</${Text}><${Text} color="gray">   recent events</${Text}></${Box}>
+      ${(st.events || []).length === 0 ? html`<${Text} color="gray">Nothing yet.</${Text}>`
+        : (st.events || []).slice(0, 20).map((e, i) => html`<${Box} key=${i}>
+            <${Box} width=${7}><${Text} color="gray">${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</${Text}></${Box}>
+            <${Box} width=${12}><${Text} color=${evColor(e.type)}>${e.type}</${Text}></${Box}>
+            <${Text} wrap="truncate-end">${e.msg}</${Text}>
+          </${Box}>`)}
+    </${Box}>` : null}
+
     ${view === 'bot' ? html`<${Box} flexDirection="column">
       <${Box} marginBottom=${1}><${Text} bold>Assistant</${Text}><${Text} color="gray">${`   texting cockpit${bestName ? ' · on ' + bestName : ''}`}</${Text}></${Box}>
       ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit — commands, accounts, hand-offs, usage, setup.</${Text}>`
@@ -334,7 +359,7 @@ function App({ port, onDone }) {
         <${Text} bold color=${ACCENT}>Keys</${Text}>
         <${Text} color="gray">↑↓ / j k move   ↵ attach/open   : command   / filter</${Text}>
         <${Text} color="gray">n new  r rename  x stop  h hand off  o terminal</${Text}>
-        <${Text} color="gray">p projects  u usage  ? keys  q quit</${Text}>
+        <${Text} color="gray">p projects  u usage  l activity log  a ask  q quit</${Text}>
       </${Box}>` : null}
 
     <${SeatBar} seats=${st.seats} />
