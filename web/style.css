@@ -238,7 +238,8 @@ table.cmds td { padding: 6px 10px 6px 0; border: 0; vertical-align: top; } table
 .lrow .title { font-weight: 500; }
 .lrow .tags { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 5px; }
 .lrow .lmeta { text-align: right; white-space: nowrap; min-width: 92px; }
-.lrow .actions { flex: none; }
+.lrow .grow { flex: 1; min-width: 0; }
+.lrow .actions { flex: none; justify-content: flex-end; }
 .star { background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1; color: var(--faint); padding: 0; width: 22px; flex: none; }
 .star.on { color: var(--warn); }
 .star:hover { color: var(--warn); }
