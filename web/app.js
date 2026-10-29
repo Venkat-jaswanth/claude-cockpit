@@ -117,16 +117,16 @@ function bestSeat() {
 // The attention queue: one ranked list of everything that can act on, drawn from state.
 // Severity order: bad (blocking) > warn (needs a decision) > go (ready for you) > info.
 function attnItems() {
-  const items = [], push = (sev, ico, title, sub, action) => items.push({ sev, ico, title, sub, action });
+  const items = [], push = (sev, ico, title, sub, action, cs) => items.push({ sev, ico, title, sub, action, cs });
   // bad: a seat you can't use at all
   for (const s of state.seats) if (!s.disabled && s.usage && !s.usage.loggedIn)
     push('bad', '!', `${esc(s.name)} is not logged in`, 'This seat cannot run or report usage until you sign in.', `<button class="btn sm" data-act="login" data-seat="${esc(s.name)}">Log in</button>`);
   // bad: a session whose process exited unexpectedly
   for (const s of state.sessions.filter(x => x.status === 'crashed'))
-    push('bad', '⚠', `${esc(s.name || s.cs)} crashed`, `Exited unexpectedly on ${esc(s.seat || '?')}${s.exitCode ? ` (code ${s.exitCode})` : ''}. Resume to pick up where it left off.`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button>`);
+    push('bad', '⚠', `${esc(s.name || s.cs)} crashed`, `Exited unexpectedly on ${esc(s.seat || '?')}${s.exitCode ? ` (code ${s.exitCode})` : ''}. Resume to pick up where it left off, or dismiss it.`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Dismiss</button>`, s.cs);
   // warn: sessions dropped by a daemon restart
   for (const s of state.sessions.filter(x => x.status === 'lost'))
-    push('warn', '↻', `${esc(s.name || s.cs)} stopped when the daemon restarted`, `${esc(short(s.cwd || ''))} · was on ${esc(s.seat || '?')}`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button>`);
+    push('warn', '↻', `${esc(s.name || s.cs)} stopped when the daemon restarted`, `${esc(short(s.cwd || ''))} · was on ${esc(s.seat || '?')}`, `<button class="btn sm primary" data-act="restore" data-cs="${esc(s.cs)}">Resume</button><button class="btn sm ghost" data-act="forget" data-cs="${esc(s.cs)}">Dismiss</button>`, s.cs);
   // warn: a usage check that failed
   for (const s of state.seats) if (s.probe?.lastResult && !s.probe.lastResult.ok && !s.probe.running)
     push('warn', '?', `Could not read usage for ${esc(s.name)}`, esc(s.probe.lastResult.reason || 'the check did not finish'), `<button class="btn sm" data-act="probe" data-seat="${esc(s.name)}">Try again</button>`);
@@ -136,7 +136,7 @@ function attnItems() {
   // warn: a session stuck busy far longer than a turn usually runs
   for (const s of state.sessions.filter(isStalled)) {
     const mins = Math.round((Date.now() - s.lastActivity) / 60000);
-    push('warn', '◴', `${esc(s.name || s.cs)} has been busy ${mins} min`, `No turn has finished on ${esc(s.seat || '?')} in a while. It may be on a long task, or stuck.`, `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`);
+    push('warn', '◴', `${esc(s.name || s.cs)} has been busy ${mins} min`, `No turn has finished on ${esc(s.seat || '?')} in a while. It may be on a long task, or stuck.`, `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}">Stop</button>`, s.cs);
   }
   // warn: nowhere fresh left to go
   const usable = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
@@ -145,10 +145,10 @@ function attnItems() {
   // go: a session finished its turn and is waiting on you (the key "needs input" signal)
   const idle = state.sessions.filter(s => s.alive && s.managed && s.kind === 'claude' && s.status === 'idle' && !s.pendingHandoff).sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
   for (const s of idle)
-    push('go', '✓', `${esc(s.name || s.cs)} is ready for you`, `Finished its turn on ${esc(s.seat || '?')} · ${ago(s.lastActivity)}`, `<button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button>`);
+    push('go', '✓', `${esc(s.name || s.cs)} is ready for you`, `Finished its turn on ${esc(s.seat || '?')} · ${ago(s.lastActivity)}`, `<button class="btn sm primary" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}" title="Finished with it? Stop now — you can still resume it later">Stop</button>`, s.cs);
   // info: a queued handoff waiting for the turn to end
   for (const s of state.sessions.filter(x => x.pendingHandoff))
-    push('', '→', `${esc(s.name || s.cs)}: handoff to ${esc(s.pendingHandoff.to)} queued`, 'Will move when the current turn ends.', '');
+    push('', '→', `${esc(s.name || s.cs)}: handoff to ${esc(s.pendingHandoff.to)} queued`, 'Will move when the current turn ends.', '', s.cs);
   // info: a scheduled run about to fire
   for (const j of (state.jobs || []).filter(j => j.status === 'queued' && j.at && j.at - Date.now() < 15 * 60e3))
     push('', '◷', `Scheduled: ${esc(j.name || j.prompt || 'session')} starts ${until(j.at) ? 'in ' + until(j.at) : 'now'}`, `${esc(short(j.cwd || ''))}${j.seat ? ' · ' + esc(j.seat) : ' · best seat'}`, `<button class="btn sm ghost" data-cancel="${esc(j.id)}">Cancel</button>`);
