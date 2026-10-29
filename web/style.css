@@ -493,13 +493,12 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 /* ============================================================================
    Multi-session workspace
    ============================================================================ */
-.ws { display: flex; flex-direction: column; gap: 12px; height: calc(100vh - 150px); min-height: 440px; }
+.ws { display: flex; flex-direction: column; gap: 12px; }
 .ws-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ws-grid { position: relative; flex: 1; min-height: 0; display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
+.ws-grid { position: relative; display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(240px, auto); }
 .ws-grid.is-empty { display: block; }
-.ws.focus .ws-grid { grid-template-columns: 1fr; grid-auto-rows: 1fr; }
 .ws.focus .wp:not(.focused) { display: none; }
-.ws-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
+.ws-empty { min-height: 55vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; }
 
 .wp { display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: #0f1115; box-shadow: var(--shadow); position: relative; transition: box-shadow 220ms var(--ease-out); }
 .wp.st-busy { box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent); }
@@ -525,15 +524,22 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 .ws-cluster { display: inline-flex; align-items: center; gap: 7px; }
 .ws-lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
 
-/* drag gutters between panes */
+/* drag gutters between panes — a visible dotted grip, like a Notion/Spotify divider */
 .ws-gutter { position: absolute; z-index: 6; touch-action: none; }
 .ws-gutter.col { cursor: col-resize; }
 .ws-gutter.row { cursor: row-resize; }
-.ws-gutter::after { content: ""; position: absolute; background: transparent; border-radius: 3px; transition: background 140ms ease; }
-.ws-gutter.col::after { left: 50%; transform: translateX(-50%); top: 10px; bottom: 10px; width: 3px; }
-.ws-gutter.row::after { top: 50%; transform: translateY(-50%); left: 10px; right: 10px; height: 3px; }
-.ws-gutter:hover::after, .ws-gutter.dragging::after { background: color-mix(in srgb, var(--accent) 60%, transparent); }
-.ws-gutter.dragging::after { background: var(--accent); }
+.ws-gutter::before { content: ""; position: absolute; background: transparent; border-radius: 2px; transition: background 160ms ease; }
+.ws-gutter.col::before { top: 8px; bottom: 8px; left: 50%; width: 2px; transform: translateX(-50%); }
+.ws-gutter.row::before { left: 8px; right: 8px; top: 50%; height: 2px; transform: translateY(-50%); }
+.ws-gutter:hover::before, .ws-gutter.dragging::before { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.ws-gutter .grip { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; gap: 3px; padding: 6px 4px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line-strong); box-shadow: var(--shadow); color: var(--faint); opacity: .5; transition: opacity 160ms var(--ease-out), color 160ms ease, box-shadow 160ms ease, transform 160ms var(--ease-out); }
+.ws-gutter.col .grip { flex-direction: column; }
+.ws-gutter .grip i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+.ws-gutter.dragging .grip { opacity: 1; color: var(--accent); box-shadow: var(--shadow-lift); transform: translate(-50%, -50%) scale(1.08); }
+@media (hover: hover) and (pointer: fine) { .ws-gutter:hover .grip { opacity: 1; color: var(--accent); box-shadow: var(--shadow-lift); transform: translate(-50%, -50%) scale(1.08); } }
+body.ws-dragging-col, body.ws-dragging-col * { cursor: col-resize !important; user-select: none !important; }
+body.ws-dragging-row, body.ws-dragging-row * { cursor: row-resize !important; user-select: none !important; }
+:root[data-motion="reduced"] .ws-gutter .grip { transition: none; }
 
 /* per-pane remove/stop menu */
 .wp-close-wrap { position: relative; display: inline-flex; }
