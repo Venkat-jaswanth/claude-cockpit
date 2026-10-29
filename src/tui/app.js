@@ -31,9 +31,12 @@ function group(sessions, filter) {
 const VERBS = [
   { name: 'status', hint: 'running sessions by project' },
   { name: 'projects', hint: 'browse every project' },
+  { name: 'usage', hint: 'account usage & limits' },
   { name: 'help', hint: 'keyboard reference' },
   { name: 'quit', hint: 'exit cockpit' },
 ];
+function meter(pct, width = 18) { const n = Math.round(Math.max(0, Math.min(100, pct || 0)) / 100 * width); return '█'.repeat(n) + '░'.repeat(width - n); }
+function burnText(s) { const b = s.burn; if (b && b.rising && b.etaMin != null && b.etaMin > 0 && b.etaMin <= 600) return `▲ ${b.perHour}%/h · ~${b.etaMin >= 60 ? Math.floor(b.etaMin / 60) + 'h' + (b.etaMin % 60) + 'm' : b.etaMin + 'm'} left`; return 'steady'; }
 
 function Logo() {
   return html`<${Box} flexDirection="column" marginBottom=${1}>
@@ -99,6 +102,8 @@ function App({ port, onDone }) {
   const post = (p, body) => request(port, 'POST', p, body || {}).catch(() => {});
   const flash = m => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
   const liveBySid = new Map((st?.sessions || []).filter(s => s.alive).map(s => [s.sessionId, s]));
+  const _liveSeats = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
+  const bestName = _liveSeats.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0]?.name;
 
   // ---- derived lists per view ----
   const groups = st ? group(shownSessions(st), mode === 'filter' ? buf : filter) : [];
@@ -124,6 +129,7 @@ function App({ port, onDone }) {
     if (!m) return flash(`unknown command: ${v}`);
     if (m.name === 'status') { setView('status'); }
     else if (m.name === 'projects') { setView('projects'); setOpenProject(null); setPsel(0); }
+    else if (m.name === 'usage') setView('usage');
     else if (m.name === 'help') setMode('help');
     else if (m.name === 'quit') onDone({ action: 'quit' });
   }
@@ -175,10 +181,18 @@ function App({ port, onDone }) {
       return;
     }
 
+    // ---- usage view ----
+    if (view === 'usage') {
+      if (key.escape) { setView('status'); return; }
+      if (input === 'r') { post('/api/probe-all'); flash('refreshing all seats…'); return; }
+      return;
+    }
+
     // ---- status view ----
     if (key.upArrow || input === 'k') return setSel(s => Math.max(0, s - 1));
     if (key.downArrow || input === 'j') return setSel(s => Math.min(flat.length - 1, s + 1));
     if (input === 'p') { setView('projects'); setOpenProject(null); setPsel(0); return; }
+    if (input === 'u') { setView('usage'); return; }
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
     if (!cur) return;
     if (key.return) return onDone({ action: 'attach', cs: cur.cs, label: cur.name || '' });
@@ -194,7 +208,9 @@ function App({ port, onDone }) {
   const footer = mode === 'cmd' ? null
     : view === 'projects'
       ? (openProject ? '↵ open · esc back · q quit' : '↵ open project · esc status · q quit')
-      : '↵ attach · r rename · x stop · h hand off · o open · p projects · / filter · : cmd · ? keys · q quit';
+      : view === 'usage'
+        ? 'r refresh · esc status · q quit'
+        : '↵ attach · r rename · x stop · h hand off · o open · p projects · u usage · / filter · : cmd · ? keys · q quit';
 
   return html`<${Box} flexDirection="column" padding=${1}>
     <${Logo} />
@@ -229,6 +245,21 @@ function App({ port, onDone }) {
               <${Box} width=${14}><${Text} color="gray">${pr.count + ' session' + (pr.count === 1 ? '' : 's')}</${Text}></${Box}>
               <${Text} color="gray">${ago(pr.lastAt)}</${Text}>
             </${Box}>`; }) : html`<${Text} color="gray">no projects yet</${Text}>`)}
+    </${Box}>` : null}
+
+    ${view === 'usage' ? html`<${Box} flexDirection="column">
+      <${Box} marginBottom=${1}><${Text} bold>Usage</${Text}><${Text} color="gray">${st.probing ? '   refreshing…' : '   5-hour windows'}</${Text}></${Box}>
+      ${(st.seats || []).filter(s => !s.disabled).map(s => { const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct, wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0);
+        return html`<${Box} key=${s.name}>
+          <${Box} width=${12}><${Text} bold=${s.name === bestName} wrap="truncate-end">${s.name}</${Text}></${Box}>
+          ${!u.loggedIn ? html`<${Text} color="red">not logged in</${Text}>` : html`<${Box}>
+            <${Text} color=${pctColor(p)}>${meter(p)}</${Text}>
+            <${Box} width=${6}><${Text} color=${pctColor(p)}> ${p == null ? '–' : p + '%'}</${Text}></${Box}>
+            <${Box} width=${16}><${Text} color="gray">resets ${(() => { const r = resetsIn(fh.resetsAt); return r && r !== 'reset' ? r : '—'; })()}</${Text}></${Box}>
+            <${Box} width=${9}><${Text} color="gray">wk ${wk ? wk + '%' : '–'}</${Text}></${Box}>
+            ${s.probe?.running ? html`<${Text} color=${ACCENT}>checking…</${Text}>` : html`<${Text} color=${(s.burn && s.burn.rising) ? 'red' : 'gray'}>${burnText(s)}</${Text}>`}
+          </${Box}>`}
+        </${Box}>`; })}
     </${Box}>` : null}
 
     ${mode === 'cmd' ? html`<${Box} marginTop=${1} flexDirection="column">

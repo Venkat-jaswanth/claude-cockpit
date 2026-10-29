@@ -118,7 +118,13 @@ async function probeSeat(seat) {
 }
 let probeQueue = Promise.resolve();
 function queueProbe(seat) { const p = probeQueue.then(() => probeSeat(seat)).catch(e => log('error', `probe ${seat.name}: ${e.message}`)); probeQueue = p; return p; }
-function probeAll() { cfg = loadConfig(); const list = cfg.seats.filter(x => !x.disabled); for (const seat of list) queueProbe(seat); return list.map(x => x.name); }
+// Run `fn` over the list with at most `limit` in flight, so "check all seats" doesn't wait for
+// one probe to finish before starting the next.
+async function runLimited(items, limit, fn) {
+  const q = [...items];
+  await Promise.all(Array.from({ length: Math.min(limit, q.length) }, async () => { while (q.length) { const it = q.shift(); try { await fn(it); } catch (e) { log('error', `probe ${it.name}: ${e.message}`); } } }));
+}
+function probeAll() { cfg = loadConfig(); const list = cfg.seats.filter(x => !x.disabled); runLimited(list, 4, probeSeat).catch(() => {}); return list.map(x => x.name); }
 
 // --- Arm the 5-hour window ------------------------------------------------------
 // The 5-hour limit clock starts on the first message, not at login. Sending one cheap
