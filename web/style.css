@@ -142,6 +142,18 @@ tr.clickable { cursor: pointer; } tr.clickable:hover td { background: color-mix(
 .hbar .fill { height: 100%; border-radius: 999px; background: var(--accent); opacity: .8; }
 .hbar .hname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hbar .hval { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* account limits (usage check) */
+.ulim-list { display: flex; flex-direction: column; gap: 12px; }
+.ulim { display: grid; grid-template-columns: 120px minmax(180px, 1fr) auto; grid-template-areas: "name bar btn" "name meta btn"; align-items: center; column-gap: 16px; row-gap: 2px; }
+.ulim-name { grid-area: name; font-weight: 600; letter-spacing: -0.01em; }
+.ulim-bar { grid-area: bar; display: flex; align-items: center; gap: 10px; }
+.ulim-bar .track { flex: 1; height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.ulim-bar .fill { height: 100%; border-radius: 999px; background: var(--ok); transition: width 500ms var(--ease-out); }
+.ulim-bar .fill.warn { background: var(--warn); } .ulim-bar .fill.bad { background: var(--bad); } .ulim-bar .fill.unknown { background: var(--faint); }
+.ulim-pct { min-width: 42px; text-align: right; font-weight: 600; }
+.ulim-meta { grid-area: meta; }
+.ulim > button { grid-area: btn; }
+@media (max-width: 640px) { .ulim { grid-template-columns: 1fr auto; grid-template-areas: "name btn" "bar bar" "meta meta"; } }
 
 /* search */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }

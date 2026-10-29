@@ -467,6 +467,31 @@ function vLibrary() {
 function kpi(label, t, sub) {
   return `<div class="card kpi"><div class="lbl">${esc(label)}</div><div class="val">${fmtTok(tot(t))}<small>tokens</small></div><div class="sub">in ${fmtTok(t?.input)} · out ${fmtTok(t?.output)} · cache ${fmtTok((t?.cacheRead || 0) + (t?.cacheWrite || 0))}</div><div class="sub">${t?.turns ? `${t.turns} turns · ` : ''}cost ${fmtCost(t?.cost)}${sub ? ` · ${esc(sub)}` : ''}</div></div>`;
 }
+// The "usage check" panel: each seat's live 5-hour + weekly limit reading, with a Check button.
+function usageLimits() {
+  const seats = (state?.seats || []).filter(s => !s.disabled);
+  if (!seats.length) return '';
+  const probing = !!state.probing;
+  const rows = seats.map(s => {
+    const u = s.usage || {}, fh = u.fiveHour || {}, p = fh.pct;
+    const wk = (u.weekly || []).reduce((a, w) => Math.max(a, w.pct || 0), 0);
+    const checking = !!s.probe?.running;
+    const reset = fh.assumedReset ? 'window reset' : (fh.resetsAt && until(fh.resetsAt) ? 'resets ' + until(fh.resetsAt) : '');
+    const burn = (s.burn && s.burn.rising && s.burn.etaMin != null && s.burn.etaMin > 0 && s.burn.etaMin <= 600) ? `▲ ${s.burn.perHour}%/h · ~${fmtDur(s.burn.etaMin)}` : '';
+    const age = u.loggedIn ? (u.fetchedAt ? (u.stale ? `reading ${Math.round(u.ageMin)}m old` : `checked ${Math.round(u.ageMin)}m ago`) : 'no reading yet') : '';
+    const meta = [reset, wk ? `wk ${wk}%` : '', burn, age].filter(Boolean).join('  ·  ');
+    return `<div class="ulim">
+      <div class="ulim-name">${esc(s.name)}</div>
+      ${!u.loggedIn ? '<div class="ulim-bar"><span class="badge bad">not logged in</span></div><div class="ulim-meta"></div>'
+        : `<div class="ulim-bar"><div class="track"><div class="fill ${lvl(p)}" style="width:${p == null ? 0 : Math.min(100, p)}%"></div></div><span class="ulim-pct num">${p == null ? '–' : p + '%'}</span></div>
+           <div class="ulim-meta tiny muted">${esc(meta)}</div>`}
+      <button class="btn sm" data-act="probe" data-seat="${esc(s.name)}" ${checking || !u.loggedIn ? 'disabled' : ''}>${checking ? 'Checking…' : 'Check'}</button>
+    </div>`;
+  }).join('');
+  return `<div class="card section"><div class="card-head"><h2>Account limits${probing ? ' <span class="badge accent">checking…</span>' : ''}</h2><button class="btn sm primary" id="btnCheckAllUsage" ${probing ? 'disabled' : ''}>${probing ? 'Checking…' : 'Check all'}</button></div>
+    <div class="ulim-list">${rows}</div>
+    <div class="tiny muted" style="margin-top:10px">The 5-hour window is Claude Code's rolling limit. “Check” opens Claude briefly on a seat to refresh the reading — no prompt is sent.</div></div>`;
+}
 function vUsage() {
   if (!usage) return '<div class="empty big">Loading…</div>';
   const storedTok = library.reduce((a, r) => a + tot(r.tokens), 0), storedCost = library.reduce((a, r) => a + (r.costUSD || 0), 0);
@@ -479,6 +504,7 @@ function vUsage() {
   const monthCost = usage.month?.total?.cost || 0;
   const budgetBar = budget > 0 ? (() => { const p = Math.min(100, Math.round(monthCost / budget * 100)); const lv = p >= 100 ? 'bad' : p >= 80 ? 'warn' : 'ok'; return `<div class="card section"><div class="card-head"><h2>This month's budget</h2><span class="tiny muted">${fmtCost(monthCost)} of ${fmtCost(budget)} · ${fmtTok(tot(usage.month?.total))} tokens</span></div>${bar('Spend this month', p, p >= 100 ? 'over budget' : `${100 - p}% left`, lv)}</div>`; })() : '';
   return `<div class="usage-top"><h2 class="muted" style="margin-bottom:10px">Usage</h2><button class="btn sm" id="csvExport">Export CSV</button></div>
+    ${usageLimits()}
     ${budgetBar}
     <div class="grid cols-4 section">${kpi('Today', usage.today.total)}${kpi('Last 7 days', usage.week.total)}${kpi('This month', usage.month?.total || {}, budget ? `budget ${fmtCost(budget)}` : '')}
       <div class="card kpi"><div class="lbl">All stored transcripts</div><div class="val">${fmtTok(storedTok)}<small>tokens</small></div><div class="sub">${library.length} conversations</div><div class="sub">cost ${fmtCost(storedCost)} · Claude Code's per-session totals</div></div></div>
@@ -677,6 +703,7 @@ function wire(el) {
   el.querySelectorAll('[data-bulk]').forEach(b => b.onclick = () => bulkAction(b.dataset.bulk));
   el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => { await post(`/api/schedule/${encodeURIComponent(b.dataset.cancel)}/cancel`); toast('Scheduled run cancelled'); load(); });
   const csv = el.querySelector('#csvExport'); if (csv) csv.onclick = exportCsv;
+  const bcau = el.querySelector('#btnCheckAllUsage'); if (bcau) bcau.onclick = () => post('/api/probe-all').then(() => toast('Checking all seats…')).catch(() => {});
   el.querySelectorAll('[data-group]').forEach(b => b.onclick = () => { const k = decodeURIComponent(b.dataset.group); const idx = [...el.querySelectorAll('[data-group]')].indexOf(b); const filtering = !!(libFilter.trim() || libStar || libTag); const cur = (k in openGroups) ? openGroups[k] : (filtering ? true : idx === 0); openGroups[k] = !cur; saveGroups(); render(); });
   const expAll = el.querySelector('#libExpand'); if (expAll) expAll.onclick = () => { const keys = [...el.querySelectorAll('[data-group]')].map(b => decodeURIComponent(b.dataset.group)); const anyClosed = keys.some((k, i) => !((k in openGroups) ? openGroups[k] : (!!(libFilter.trim() || libStar || libTag) ? true : i === 0))); keys.forEach(k => openGroups[k] = anyClosed); saveGroups(); render(); };
   el.querySelectorAll('[data-group-mode]').forEach(b => b.onclick = () => { libGroup = b.dataset.groupMode; render(); });
