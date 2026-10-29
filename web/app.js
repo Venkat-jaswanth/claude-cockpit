@@ -846,10 +846,10 @@ class WsPane {
 }
 const wsCtl = {
   panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null,
-  colFr: [], rowFr: [], handles: [], _cols: 0, _rows: 0, _vsig: '',
+  colFr: [], rowPx: [], handles: [], _cols: 0, _rows: 0, _vsig: '', MINROW: 240,
   built: false, rootEl: null, grid: null, bar: null, barSig: '',
-  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowFr = Array.isArray(s.rowFr) ? s.rowFr : []; } catch {} },
-  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout, filter: this.filter, colFr: this.colFr, rowFr: this.rowFr })); } catch {} },
+  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowPx = Array.isArray(s.rowPx) ? s.rowPx : []; } catch {} },
+  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout, filter: this.filter, colFr: this.colFr, rowPx: this.rowPx })); } catch {} },
   running() { return (state?.sessions || []).filter(s => s.alive && s.managed && s.kind === 'claude'); },
   runningIds() { return this.running().map(s => s.cs); },
   sessOf(cs) { return (state?.sessions || []).find(x => x.cs === cs); },
@@ -933,46 +933,55 @@ const wsCtl = {
     const vis = [];
     for (const cs of this.order) { const pane = this.panes.get(cs); if (!pane) continue; const show = this.focus ? cs === this.focus : this.matches(cs); pane.node.classList.toggle('wp-hidden', !show); if (show) vis.push(cs); }
     this._visCache = vis;
-    if (this.focus) { this.grid.style.gridTemplateColumns = '1fr'; this.grid.style.gridTemplateRows = '1fr'; this.clearHandles(); return; }
+    if (this.focus) { this.grid.style.gridTemplateColumns = '1fr'; this.grid.style.gridTemplateRows = this.fillHeight() + 'px'; this.clearHandles(); return; }
     const n = vis.length; if (!n) { this.clearHandles(); return; }
     const cols = this.computeCols(n), rows = Math.ceil(n / cols);
     if (this.colFr.length !== cols) this.colFr = Array(cols).fill(1);
-    if (this.rowFr.length !== rows) this.rowFr = Array(rows).fill(1);
+    if (this.rowPx.length !== rows) this.rowPx = this.defaultRowHeights(rows);
     this.grid.style.gridTemplateColumns = this.colFr.map(f => f.toFixed(4) + 'fr').join(' ');
-    this.grid.style.gridTemplateRows = this.rowFr.map(f => f.toFixed(4) + 'fr').join(' ');
+    this.grid.style.gridTemplateRows = this.rowPx.map(h => Math.round(h) + 'px').join(' ');
     if (cols !== this._cols || rows !== this._rows) { this._cols = cols; this._rows = rows; this.buildHandles(cols, rows); }
     this.positionHandles();
   },
+  // Height that fills the viewport below the grid's top; rows default to this, but drag can grow past it (the page scrolls).
+  fillHeight() { const top = this.grid ? this.grid.getBoundingClientRect().top : 160; return Math.max(320, Math.round(window.innerHeight - top - 24)); },
+  defaultRowHeights(rows) { const avail = this.fillHeight(); return Array(rows).fill(Math.max(this.MINROW, Math.floor((avail - (rows - 1) * 12) / rows))); },
   clearHandles() { for (const h of this.handles) h.remove(); this.handles = []; this._cols = this._rows = 0; },
   buildHandles(cols, rows) {
     this.clearHandles(); this._cols = cols; this._rows = rows;
     for (let i = 1; i < cols; i++) this.handles.push(this.makeHandle('col', i));
     for (let j = 1; j < rows; j++) this.handles.push(this.makeHandle('row', j));
   },
-  makeHandle(kind, idx) { const h = document.createElement('div'); h.className = 'ws-gutter ' + kind; h.dataset.kind = kind; h.dataset.idx = idx; this.grid.appendChild(h); this.attachGutter(h); return h; },
+  makeHandle(kind, idx) { const h = document.createElement('div'); h.className = 'ws-gutter ' + kind; h.dataset.kind = kind; h.dataset.idx = idx; h.innerHTML = '<span class="grip"><i></i><i></i><i></i></span>'; this.grid.appendChild(h); this.attachGutter(h); return h; },
   visNodeAt(r, c) { const cs = (this._visCache || [])[r * this._cols + c]; const p = cs && this.panes.get(cs); return p ? p.node : null; },
   positionHandles() {
     if (!this.handles.length || !this.grid) return; const gap = 12;
-    for (const h of this.handles) { const kind = h.dataset.kind, idx = +h.dataset.idx;
-      if (kind === 'col') { const n = this.visNodeAt(0, idx); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.left = (n.offsetLeft - gap / 2) + 'px'; h.style.top = '0'; h.style.width = gap + 'px'; h.style.height = this.grid.clientHeight + 'px'; }
-      else { const n = this.visNodeAt(idx, 0); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.top = (n.offsetTop - gap / 2) + 'px'; h.style.left = '0'; h.style.height = gap + 'px'; h.style.width = this.grid.clientWidth + 'px'; } }
+    const base = this.visNodeAt(0, 0); const rowMid = base ? base.offsetHeight / 2 : 120, colMid = base ? base.offsetWidth / 2 : 160;
+    for (const h of this.handles) { const kind = h.dataset.kind, idx = +h.dataset.idx, grip = h.firstElementChild;
+      if (kind === 'col') { const n = this.visNodeAt(0, idx); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.left = (n.offsetLeft - gap / 2) + 'px'; h.style.top = '0'; h.style.width = gap + 'px'; h.style.height = this.grid.clientHeight + 'px'; if (grip) { grip.style.left = gap / 2 + 'px'; grip.style.top = rowMid + 'px'; } }
+      else { const n = this.visNodeAt(idx, 0); if (!n) { h.style.display = 'none'; continue; } h.style.display = ''; h.style.top = (n.offsetTop - gap / 2) + 'px'; h.style.left = '0'; h.style.height = gap + 'px'; h.style.width = this.grid.clientWidth + 'px'; if (grip) { grip.style.top = gap / 2 + 'px'; grip.style.left = colMid + 'px'; } } }
   },
   attachGutter(h) {
     h.addEventListener('pointerdown', e => {
       e.preventDefault(); const kind = h.dataset.kind, idx = +h.dataset.idx;
-      const a = kind === 'col' ? this.visNodeAt(0, idx - 1) : this.visNodeAt(idx - 1, 0);
-      const b = kind === 'col' ? this.visNodeAt(0, idx) : this.visNodeAt(idx, 0);
-      if (!a || !b) return; h.setPointerCapture(e.pointerId); h.classList.add('dragging');
-      const arr = kind === 'col' ? this.colFr : this.rowFr;
-      const start = kind === 'col' ? e.clientX : e.clientY;
-      const aPx0 = kind === 'col' ? a.offsetWidth : a.offsetHeight;
-      const totalPx = aPx0 + (kind === 'col' ? b.offsetWidth : b.offsetHeight);
-      const totalFr = arr[idx - 1] + arr[idx], minPx = Math.max(80, Math.min(180, totalPx * 0.18));
-      const move = ev => { const d = (kind === 'col' ? ev.clientX : ev.clientY) - start; const aPx = Math.max(minPx, Math.min(totalPx - minPx, aPx0 + d));
-        arr[idx - 1] = totalFr * aPx / totalPx; arr[idx] = totalFr - arr[idx - 1];
-        this.grid.style[kind === 'col' ? 'gridTemplateColumns' : 'gridTemplateRows'] = arr.map(f => f.toFixed(4) + 'fr').join(' ');
-        this.positionHandles(); };
-      const up = () => { h.classList.remove('dragging'); try { h.releasePointerCapture(e.pointerId); } catch {} h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.save(); this.fitAll(); };
+      h.setPointerCapture(e.pointerId); h.classList.add('dragging'); document.body.classList.add('ws-dragging-' + kind);
+      let move;
+      if (kind === 'col') {
+        // Columns share a fixed width: dragging redistributes fr between the two adjacent columns.
+        const a = this.visNodeAt(0, idx - 1), b = this.visNodeAt(0, idx);
+        if (!a || !b) { h.classList.remove('dragging'); document.body.classList.remove('ws-dragging-' + kind); try { h.releasePointerCapture(e.pointerId); } catch {} return; }
+        const startX = e.clientX, aPx0 = a.offsetWidth, totalPx = aPx0 + b.offsetWidth;
+        const totalFr = this.colFr[idx - 1] + this.colFr[idx], minPx = Math.max(140, Math.min(260, totalPx * 0.22));
+        move = ev => { const aPx = Math.max(minPx, Math.min(totalPx - minPx, aPx0 + (ev.clientX - startX)));
+          this.colFr[idx - 1] = totalFr * aPx / totalPx; this.colFr[idx] = totalFr - this.colFr[idx - 1];
+          this.grid.style.gridTemplateColumns = this.colFr.map(f => f.toFixed(4) + 'fr').join(' '); this.positionHandles(); };
+      } else {
+        // Rows are pixel heights: dragging grows the row above the handle and lets the page scroll.
+        const startY = e.clientY, h0 = this.rowPx[idx - 1];
+        move = ev => { this.rowPx[idx - 1] = Math.max(this.MINROW, h0 + (ev.clientY - startY));
+          this.grid.style.gridTemplateRows = this.rowPx.map(hh => Math.round(hh) + 'px').join(' '); this.positionHandles(); };
+      }
+      const up = () => { h.classList.remove('dragging'); document.body.classList.remove('ws-dragging-' + kind); try { h.releasePointerCapture(e.pointerId); } catch {} h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.save(); this.fitAll(); };
       h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
     });
   },
@@ -993,8 +1002,8 @@ const wsCtl = {
     this.refreshBar(); this.fitAll();
   },
   closeMenus() { this.panes.forEach(p => { const m = p.node.querySelector('.wp-menu'); if (m) m.hidden = true; }); },
-  setLayout(l) { this.layout = l; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
-  setFilter(f) { this.filter = f; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setLayout(l) { this.layout = l; this.colFr = []; this.rowPx = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setFilter(f) { this.filter = f; this.colFr = []; this.rowPx = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   paneAction(action, cs) {
     if (action === 'menu') { const pane = this.panes.get(cs); if (!pane) return; const m = pane.node.querySelector('.wp-menu'); const open = m && m.hidden; this.closeMenus(); if (m && open) m.hidden = false; return; }
