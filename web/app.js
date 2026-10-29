@@ -157,31 +157,6 @@ function attnItems() {
 }
 // ---- Overview sections (all real data, rendered at final values; motion plays on view-enter) ----
 const fmtDur = m => { m = Math.max(0, Math.round(m)); if (m < 60) return m + 'm'; const h = Math.floor(m / 60); const r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; };
-// A rolling, persisted history of each seat's 5-hour utilisation, sampled from the state poll.
-// This is what the Runway sparkline draws; it fills in over time and survives reloads.
-let usageHist = {}; try { usageHist = JSON.parse(localStorage.getItem('cockpit.usageHist') || '{}'); } catch {}
-function sampleUsage() {
-  if (!state?.seats) return; const now = Date.now(), KEEP = 5.5 * 3600e3;
-  for (const s of state.seats) {
-    const p = s.usage?.fiveHour?.pct; if (p == null || !s.usage?.loggedIn || s.usage?.fiveHour?.assumedReset) continue;
-    const arr = usageHist[s.name] || (usageHist[s.name] = []); const last = arr[arr.length - 1];
-    if (!last || now - last[0] > 55e3 || Math.abs(p - last[1]) >= 1) arr.push([now, Math.round(p)]);
-    while (arr.length && now - arr[0][0] > KEEP) arr.shift();
-    if (arr.length > 160) arr.splice(0, arr.length - 160);
-  }
-  try { localStorage.setItem('cockpit.usageHist', JSON.stringify(usageHist)); } catch {}
-}
-// Build the sparkline line + area paths from a seat's samples, inside a 100x40 box (y grows down).
-function sparkPaths(name, pctNow) {
-  const arr = (usageHist[name] || []).slice();
-  if (pctNow != null && (!arr.length || Date.now() - arr[arr.length - 1][0] > 1500)) arr.push([Date.now(), Math.round(pctNow)]);
-  const y = p => 38 - (Math.min(100, Math.max(0, p)) / 100 * 34);
-  if (arr.length < 2) { const yy = (y(arr[0]?.[1] ?? pctNow ?? 0)).toFixed(1); return { line: `M0,${yy} L100,${yy}`, area: `M0,${yy} L100,${yy} L100,40 L0,40 Z` }; }
-  const t0 = arr[0][0], span = Math.max(1, arr[arr.length - 1][0] - t0);
-  const pts = arr.map(([t, p]) => [((t - t0) / span * 100).toFixed(1), y(p).toFixed(1)]);
-  const line = 'M' + pts.map(p => `${p[0]},${p[1]}`).join(' L');
-  return { line, area: `${line} L100,40 L0,40 Z` };
-}
 // Time until a seat's 5-hour window is exhausted, preferring the daemon's measured burn rate.
 function runwayFor(s) {
   const b = s.burn, fh = s.usage?.fiveHour || {};
@@ -207,41 +182,26 @@ function ovQuickLaunch() {
   return `<div class="section"><div class="card-head"><h2>Quick launch</h2><a class="tiny" data-ql-add href="#/settings">Manage</a></div>
     <div class="grid auto ql-grid">${cards}${add}</div>${mine.length ? '' : '<div class="tiny muted" style="margin-top:8px">Examples — add your own and these make way.</div>'}</div>`;
 }
-function ovRunway() {
-  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
-  if (seats.length < 1) return '';
-  return `<div class="section"><div class="card-head"><h2>Runway</h2><span class="tiny muted">how long each account lasts at this pace</span></div>
-    <div class="grid auto">${seats.map(s => { const fh = s.usage.fiveHour || {}, r = runwayFor(s), sp = sparkPaths(s.name, fh.pct), c = r.kind === 'unknown' ? 'faint' : r.kind;
-      return `<div class="card runway lift">
-        <div class="top"><div><div class="nm">${esc(s.name)}</div><div class="eta">${esc(r.text)}</div></div><div class="now num">${fh.pct == null ? '–' : fh.pct + '%'} now</div></div>
-        <svg class="spark" viewBox="0 0 100 40" preserveAspectRatio="none" style="color:var(--${c})"><path class="area" d="${sp.area}"/><path class="line" pathLength="1" d="${sp.line}"/></svg>
-        <div class="tiny muted">${esc(r.sub)}${fh.resetsAt && until(fh.resetsAt) ? ' · resets in ' + until(fh.resetsAt) : ''}</div>
-      </div>`; }).join('')}</div></div>`;
-}
-function ovResets() {
-  const FIVE = 5 * 3600e3;
+// One merged per-account section: a usage ring, readiness, reset countdown and runway — no
+// separate Capacity / Window-resets / Runway cards saying overlapping things.
+function ovAccounts() {
   const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn);
   if (!seats.length) return '';
-  const rows = seats.map(s => { const fh = s.usage.fiveHour || {};
-    if (!fh.resetsAt || fh.assumedReset || until(fh.resetsAt) === null) return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"></div><span class="rt faint">no active window</span></div>`;
-    const ms = new Date(fh.resetsAt).getTime() - Date.now(), frac = Math.max(0.02, Math.min(1, 1 - ms / FIVE));
-    const when = new Date(fh.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(frac * 100)}%"></div></div><span class="rt">${when} · ${until(fh.resetsAt)}</span></div>`; }).join('');
-  const weekly = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && (s.usage.weekly || []).length).map(s => { const w = s.usage.weekly.find(x => x.active) || s.usage.weekly[0]; return `${esc(s.name)} ${w.pct ?? '–'}%`; });
-  return `<div class="section"><div class="card-head"><h2>Window resets</h2><span class="tiny muted">the 5-hour clock</span></div>
-    <div class="card"><div class="wtl">${rows}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:14px">Weekly — ${weekly.join(' · ')}</div>` : ''}</div></div>`;
-}
-function ovCapacity() {
-  const head = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null).map(s => ({ s, free: Math.max(0, 100 - s.usage.fiveHour.pct) }));
-  if (head.length < 1) return '';
-  const ready = head.filter(x => x.free >= 40).length;
-  const rows = head.slice().sort((a, b) => b.free - a.free).map(x => { const c = x.free >= 60 ? 'ok' : x.free >= 25 ? 'warn' : 'bad';
-    return `<div class="caprow"><span class="nm">${esc(x.s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(x.free)}%;background:var(--${c})"></div></div><span class="pct num">${Math.round(x.free)}%</span></div>`; }).join('');
-  return `<div class="section"><div class="card-head"><h2>Capacity</h2><span class="tiny muted">free headroom across your accounts</span></div>
-    <div class="card cap">
-      <div class="cap-hero"><div class="cap-big" data-count="${ready}" data-countfmt="int">${ready}</div><div class="cap-lbl">of ${head.length} account${head.length === 1 ? '' : 's'} ready for work right now</div></div>
-      <div class="cap-rows">${rows}</div>
-    </div></div>`;
+  const ready = seats.filter(s => { const p = seatPct(s); return p != null && p < 60; }).length;
+  const cards = seats.map(s => {
+    const fh = s.usage.fiveHour || {}, p = fh.pct, c = p == null ? 'faint' : lvl(p), r = runwayFor(s);
+    const reset = (!fh.resetsAt || fh.assumedReset || until(fh.resetsAt) === null) ? 'no active window' : 'resets in ' + until(fh.resetsAt);
+    const run = r.kind === 'unknown' ? '' : (r.text === 'steady' ? 'steady' : r.text + ' left');
+    const badge = p == null ? '<span class="badge">no reading</span>' : p >= 85 ? '<span class="badge bad">low</span>' : p >= 60 ? '<span class="badge warn">busy</span>' : '<span class="badge ok">ready</span>';
+    return `<div class="card acct lift">
+      <span class="ring" style="--p:${p ?? 0};--c:var(--${c})" data-label="${p == null ? '–' : p + '%'}"></span>
+      <div class="acct-info"><div class="acct-top"><span class="acct-name">${esc(s.name)}</span>${badge}</div>
+        <div class="acct-sub">${reset}${run ? ' · ' + run : ''}</div></div>
+    </div>`;
+  }).join('');
+  const weekly = seats.filter(s => (s.usage.weekly || []).length).map(s => { const w = s.usage.weekly.find(x => x.active) || s.usage.weekly[0]; return `${esc(s.name)} ${w.pct ?? '–'}%`; });
+  return `<div class="section"><div class="card-head"><h2>Accounts</h2><span class="tiny muted">${ready} of ${seats.length} ready · usage, resets and runway</span></div>
+    <div class="grid auto acct-grid">${cards}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:10px">Weekly — ${weekly.join(' · ')}</div>` : ''}</div>`;
 }
 function ovToday() {
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
@@ -294,9 +254,7 @@ function vOverview() {
     <div class="section"><div class="card-head"><h2>Needs you${attn.length ? ` <span class="badge warn">${attn.length}</span>` : ''}</h2></div>${attnHtml}</div>
     <div class="section"><div class="card-head"><h2>Running now <span class="badge">${running.length}</span></h2><a href="#/sessions" class="tiny">All sessions</a></div>${runHtml}${outsideNote}</div>
     ${ovQuickLaunch()}
-    ${ovRunway()}
-    ${ovResets()}
-    ${ovCapacity()}
+    ${ovAccounts()}
     ${ovToday()}
     <div class="grid cols-2">
       <div class="card flat"><div class="card-head"><h2>Today</h2><a href="#/usage" class="tiny">Usage</a></div>
@@ -644,12 +602,10 @@ function render() {
   wire(el);
   if (viewChanged) { animateCounts(el); animateEnter(el); }
 }
-// One-time entrance draw for the Runway sparklines and the Today timeline, on navigation only.
+// One-time entrance draw for the Today timeline bars, on navigation only.
 function animateEnter(scope) {
   if (/\bnomotion\b/.test(location.search)) return;
   try { if (matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch {}
-  scope.querySelectorAll('.spark .line').forEach(p => { p.style.transition = 'none'; p.style.strokeDashoffset = '1'; void p.getBoundingClientRect(); p.style.transition = ''; requestAnimationFrame(() => { p.style.strokeDashoffset = '0'; }); });
-  scope.querySelectorAll('.spark .area').forEach(a => { a.style.transition = 'none'; a.style.opacity = '0'; void a.getBoundingClientRect(); a.style.transition = ''; requestAnimationFrame(() => { a.style.opacity = ''; }); });
   scope.querySelectorAll('.gblock').forEach((b, i) => { b.style.transition = 'none'; b.style.transform = 'scaleX(0)'; void b.getBoundingClientRect(); b.style.transition = ''; b.style.transitionDelay = (i % 8) * 45 + 'ms'; requestAnimationFrame(() => { b.style.transform = 'scaleX(1)'; setTimeout(() => { b.style.transitionDelay = ''; }, 760); }); });
 }
 function wire(el) {
@@ -756,7 +712,6 @@ $('#btnCheckAll').onclick = async () => { await post('/api/probe-all'); toast('C
 async function load() {
   try {
     const r = await fetch('/api/state'); state = await r.json();
-    sampleUsage();
     render();
   } catch { $('#brandSub').textContent = 'daemon unreachable'; $('#daemonLine').textContent = 'In a terminal: cockpit daemon start'; }
 }
