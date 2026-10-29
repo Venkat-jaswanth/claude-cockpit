@@ -29,6 +29,7 @@ function pad(s, n) { s = String(s ?? ''); const vis = s.replace(/\x1b\[[0-9;]*m/
 function resetsIn(iso) { if (!iso) return ''; const ms = new Date(iso).getTime() - Date.now(); if (ms <= 0) return 'reset'; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; }
 
 async function notifyDaemonReload(port) { try { await request(port, 'POST', '/api/reload'); } catch {} }
+async function cmdTui() { const { startTui } = await import('../src/tui/app.js'); await startTui(); }
 
 function printSeats(cfg) {
   if (!cfg.seats.length) { out(dim('no seats. Run `cockpit init`, then `cockpit seat add <name>`.')); return; }
@@ -337,6 +338,8 @@ async function cmdHooks(args) {
 function help() {
   out(`${bold('claude-cockpit')} · one laptop, many Claude Code seats
 
+  cockpit                                 open the terminal control room (grouped sessions, usage, quick actions)
+  cockpit tui                             same — the terminal-native control room
   cockpit init [--name N] [--port P]      adopt the current ~/.claude login as the first seat, install hooks, start the daemon
   cockpit seat add <name> [--no-login]    create an isolated seat and log a teammate's account into it
   cockpit seat list | login | remove | sync
@@ -373,7 +376,9 @@ function help() {
       case 'config': return await cmdConfig(argv);
       case 'hooks': return await cmdHooks(argv);
       case 'open': { const port = portOf(); await ensureDaemon(port); spawn('open', [`http://127.0.0.1:${port}`], { stdio: 'ignore', detached: true }).unref(); return out(`http://127.0.0.1:${port}`); }
-      case undefined: case 'help': case '--help': case '-h': return help();
+      case 'tui': return await cmdTui();
+      case undefined: return process.stdout.isTTY ? await cmdTui() : help();
+      case 'help': case '--help': case '-h': return help();
       default: fail(`unknown command "${cmd}"\n`), help();
     }
   } catch (e) { fail(e.message); }
