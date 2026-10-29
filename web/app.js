@@ -846,10 +846,10 @@ class WsPane {
 }
 const wsCtl = {
   panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null,
-  colFr: [], rowPx: [], handles: [], _cols: 0, _rows: 0, _vsig: '', MINROW: 240,
+  colFr: [], rowFr: [], handles: [], _cols: 0, _rows: 0, _vsig: '', MINROW: 240,
   built: false, rootEl: null, grid: null, bar: null, barSig: '',
-  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowPx = Array.isArray(s.rowPx) ? s.rowPx : []; } catch {} },
-  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout, filter: this.filter, colFr: this.colFr, rowPx: this.rowPx })); } catch {} },
+  load() { try { const s = JSON.parse(localStorage.getItem('cockpit.ws') || '{}'); this.order = Array.isArray(s.order) ? s.order : []; this.layout = s.layout || 'auto'; this.filter = s.filter || 'all'; this.colFr = Array.isArray(s.colFr) ? s.colFr : []; this.rowFr = Array.isArray(s.rowFr) ? s.rowFr : []; } catch {} },
+  save() { try { localStorage.setItem('cockpit.ws', JSON.stringify({ order: this.order, layout: this.layout, filter: this.filter, colFr: this.colFr, rowFr: this.rowFr })); } catch {} },
   running() { return (state?.sessions || []).filter(s => s.alive && s.managed && s.kind === 'claude'); },
   runningIds() { return this.running().map(s => s.cs); },
   sessOf(cs) { return (state?.sessions || []).find(x => x.cs === cs); },
@@ -933,19 +933,20 @@ const wsCtl = {
     const vis = [];
     for (const cs of this.order) { const pane = this.panes.get(cs); if (!pane) continue; const show = this.focus ? cs === this.focus : this.matches(cs); pane.node.classList.toggle('wp-hidden', !show); if (show) vis.push(cs); }
     this._visCache = vis;
-    if (this.focus) { this.grid.style.gridTemplateColumns = '1fr'; this.grid.style.gridTemplateRows = this.fillHeight() + 'px'; this.clearHandles(); return; }
-    const n = vis.length; if (!n) { this.clearHandles(); return; }
+    if (this.focus) { this.grid.style.height = this.fillHeight() + 'px'; this.grid.style.gridTemplateColumns = '1fr'; this.grid.style.gridTemplateRows = '1fr'; this.clearHandles(); return; }
+    const n = vis.length; if (!n) { this.grid.style.height = ''; this.clearHandles(); return; }
     const cols = this.computeCols(n), rows = Math.ceil(n / cols);
     if (this.colFr.length !== cols) this.colFr = Array(cols).fill(1);
-    if (this.rowPx.length !== rows) this.rowPx = this.defaultRowHeights(rows);
+    if (this.rowFr.length !== rows) this.rowFr = Array(rows).fill(1);
+    // The grid fills the viewport; rows share that height, so resizing one row shrinks its neighbour
+    // rather than pushing panes off-screen. With many rows it grows past the viewport and the page scrolls.
+    this.grid.style.height = Math.max(this.fillHeight(), rows * this.MINROW + (rows - 1) * 12) + 'px';
     this.grid.style.gridTemplateColumns = this.colFr.map(f => f.toFixed(4) + 'fr').join(' ');
-    this.grid.style.gridTemplateRows = this.rowPx.map(h => Math.round(h) + 'px').join(' ');
+    this.grid.style.gridTemplateRows = this.rowFr.map(f => f.toFixed(4) + 'fr').join(' ');
     if (cols !== this._cols || rows !== this._rows) { this._cols = cols; this._rows = rows; this.buildHandles(cols, rows); }
     this.positionHandles();
   },
-  // Height that fills the viewport below the grid's top; rows default to this, but drag can grow past it (the page scrolls).
   fillHeight() { const top = this.grid ? this.grid.getBoundingClientRect().top : 160; return Math.max(320, Math.round(window.innerHeight - top - 24)); },
-  defaultRowHeights(rows) { const avail = this.fillHeight(); return Array(rows).fill(Math.max(this.MINROW, Math.floor((avail - (rows - 1) * 12) / rows))); },
   clearHandles() { for (const h of this.handles) h.remove(); this.handles = []; this._cols = this._rows = 0; },
   buildHandles(cols, rows) {
     this.clearHandles(); this._cols = cols; this._rows = rows;
@@ -976,10 +977,14 @@ const wsCtl = {
           this.colFr[idx - 1] = totalFr * aPx / totalPx; this.colFr[idx] = totalFr - this.colFr[idx - 1];
           this.grid.style.gridTemplateColumns = this.colFr.map(f => f.toFixed(4) + 'fr').join(' '); this.positionHandles(); };
       } else {
-        // Rows are pixel heights: dragging grows the row above the handle and lets the page scroll.
-        const startY = e.clientY, h0 = this.rowPx[idx - 1];
-        move = ev => { this.rowPx[idx - 1] = Math.max(this.MINROW, h0 + (ev.clientY - startY));
-          this.grid.style.gridTemplateRows = this.rowPx.map(hh => Math.round(hh) + 'px').join(' '); this.positionHandles(); };
+        // Rows share the grid height: dragging redistributes fr between the two adjacent rows.
+        const a = this.visNodeAt(idx - 1, 0), b = this.visNodeAt(idx, 0);
+        if (!a || !b) { h.classList.remove('dragging'); document.body.classList.remove('ws-dragging-' + kind); try { h.releasePointerCapture(e.pointerId); } catch {} return; }
+        const startY = e.clientY, aPx0 = a.offsetHeight, totalPx = aPx0 + b.offsetHeight;
+        const totalFr = this.rowFr[idx - 1] + this.rowFr[idx], minPx = Math.min(this.MINROW, totalPx * 0.3);
+        move = ev => { const aPx = Math.max(minPx, Math.min(totalPx - minPx, aPx0 + (ev.clientY - startY)));
+          this.rowFr[idx - 1] = totalFr * aPx / totalPx; this.rowFr[idx] = totalFr - this.rowFr[idx - 1];
+          this.grid.style.gridTemplateRows = this.rowFr.map(f => f.toFixed(4) + 'fr').join(' '); this.positionHandles(); };
       }
       const up = () => { h.classList.remove('dragging'); document.body.classList.remove('ws-dragging-' + kind); try { h.releasePointerCapture(e.pointerId); } catch {} h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); this.save(); this.fitAll(); };
       h.addEventListener('pointermove', move); h.addEventListener('pointerup', up);
@@ -1002,8 +1007,8 @@ const wsCtl = {
     this.refreshBar(); this.fitAll();
   },
   closeMenus() { this.panes.forEach(p => { const m = p.node.querySelector('.wp-menu'); if (m) m.hidden = true; }); },
-  setLayout(l) { this.layout = l; this.colFr = []; this.rowPx = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
-  setFilter(f) { this.filter = f; this.colFr = []; this.rowPx = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setLayout(l) { this.layout = l; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setFilter(f) { this.filter = f; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   paneAction(action, cs) {
     if (action === 'menu') { const pane = this.panes.get(cs); if (!pane) return; const m = pane.node.querySelector('.wp-menu'); const open = m && m.hidden; this.closeMenus(); if (m && open) m.hidden = false; return; }
@@ -1036,4 +1041,4 @@ const wsCtl = {
   },
   teardown() { this.closeMenus(); this.clearHandles(); this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
 };
-window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) { wsCtl.positionHandles(); wsCtl.fitAll(); } });
+window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) { wsCtl.applyTracks(); wsCtl.fitAll(); } });
