@@ -17,6 +17,10 @@
   .overlay.show { display: flex; }
   .overlay .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; max-width: 420px; box-shadow: var(--shadow); }
   .overlay h3 { font-size: 15px; letter-spacing: 0; text-transform: none; color: var(--text); margin-bottom: 6px; }
+  .tsearch { position: fixed; top: 54px; right: 14px; z-index: 20; display: flex; gap: 6px; align-items: center; padding: 7px 9px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
+  .tsearch[hidden] { display: none; }
+  .tsearch input { font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; width: 200px; outline: none; }
+  .tsearch .count { font-size: 12px; color: var(--muted); min-width: 30px; text-align: center; }
 </style>
 </head>
 <body>
@@ -33,9 +37,18 @@
   <button class="btn sm danger" id="btnStop">Stop</button>
 </div>
 <div id="term"></div>
+<div class="tsearch" id="tsearch" hidden>
+  <input id="tsearchInput" placeholder="Find in scrollback…" autocomplete="off" spellcheck="false">
+  <span class="count" id="tsearchCount"></span>
+  <button class="btn sm" id="tsearchPrev" title="Previous (Shift+Enter)">↑</button>
+  <button class="btn sm" id="tsearchNext" title="Next (Enter)">↓</button>
+  <button class="btn sm" id="tsearchClose" title="Close (Esc)">✕</button>
+</div>
 <div class="overlay" id="overlay"><div class="box"><h3 id="ovTitle">Session ended</h3><p id="ovText" class="muted"></p><p><select class="sel sm" id="restoreSeat"><option value="">Best seat</option></select> <button class="btn sm primary" id="btnRestore">Resume here</button> <a class="btn sm" href="/">Dashboard</a></p></div></div>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/addon-search.js"></script>
+<script src="/vendor/addon-web-links.js"></script>
 <script src="/terminal.js"></script>
 </body>
 </html>

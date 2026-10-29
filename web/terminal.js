@@ -13,6 +13,9 @@ const _tp = termPrefs(), _theme = TERM_THEMES[_tp.theme] || TERM_THEMES.Midnight
 const term = new Terminal({ cursorBlink: true, cursorStyle: _tp.cursor || 'block', fontSize: Number(_tp.fontSize) || 13, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', theme: _theme, scrollback: 5000, allowProposedApi: true });
 const fit = new FitAddon.FitAddon();
 term.loadAddon(fit);
+const searchAddon = (typeof SearchAddon !== 'undefined') ? new SearchAddon.SearchAddon() : null;
+if (searchAddon) term.loadAddon(searchAddon);
+if (typeof WebLinksAddon !== 'undefined') term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener')));
 term.open($('#term'));
 document.body.style.background = _theme.background; $('#term').style.background = _theme.background;
 fit.fit();
@@ -58,6 +61,19 @@ async function loadSeats() {
       sel.value = cur;
     }
   } catch {}
+}
+// Find in scrollback (⌘F / Ctrl-F), via the search addon.
+if (searchAddon) {
+  const sb = $('#tsearch'), sbi = $('#tsearchInput'), sbc = $('#tsearchCount');
+  const decos = { matchBackground: '#3a3a52', activeMatchBackground: '#5eead4', activeMatchColorOverviewRuler: '#5eead4', matchOverviewRuler: '#5eead4' };
+  const find = dir => { const q = sbi.value; if (!q) { sbc.textContent = ''; try { searchAddon.clearDecorations(); } catch {} return; } try { dir < 0 ? searchAddon.findPrevious(q, { decorations: decos }) : searchAddon.findNext(q, { decorations: decos }); } catch {} };
+  const openS = () => { sb.hidden = false; sbi.focus(); sbi.select(); };
+  const closeS = () => { sb.hidden = true; sbc.textContent = ''; try { searchAddon.clearDecorations(); } catch {} term.focus(); };
+  searchAddon.onDidChangeResults?.(r => { sbc.textContent = r && r.resultCount >= 0 ? (r.resultCount ? `${r.resultIndex + 1}/${r.resultCount}` : 'none') : ''; });
+  term.attachCustomKeyEventHandler(e => { if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); openS(); return false; } return true; });
+  sbi.addEventListener('input', () => find(1));
+  sbi.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); find(e.shiftKey ? -1 : 1); } else if (e.key === 'Escape') { e.preventDefault(); closeS(); } });
+  $('#tsearchNext').onclick = () => find(1); $('#tsearchPrev').onclick = () => find(-1); $('#tsearchClose').onclick = closeS;
 }
 loadSeats(); setInterval(loadSeats, 10000);
 connect();

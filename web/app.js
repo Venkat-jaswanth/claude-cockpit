@@ -894,11 +894,11 @@ setInterval(load, 3000); setInterval(loadSlow, 15000);
 // xterm is only needed here, so it is loaded on first open rather than on every dashboard load.
 let xtermLoading = null;
 function ensureXterm() {
-  if (window.Terminal && window.FitAddon) return Promise.resolve();
+  if (window.Terminal && window.FitAddon && window.WebLinksAddon) return Promise.resolve();
   if (xtermLoading) return xtermLoading;
   const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = '/vendor/xterm.css'; document.head.appendChild(css);
   const js = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
-  xtermLoading = js('/vendor/xterm.js').then(() => js('/vendor/addon-fit.js'));
+  xtermLoading = js('/vendor/xterm.js').then(() => Promise.all([js('/vendor/addon-fit.js'), js('/vendor/addon-search.js'), js('/vendor/addon-web-links.js')]));
   return xtermLoading;
 }
 // One live terminal bound to one session, speaking the same WS protocol as terminal.js.
@@ -908,6 +908,8 @@ class WsPane {
     const body = this.node.querySelector('.wp-term');
     this.term = new Terminal(termXtermOptions());
     this.fit = new FitAddon.FitAddon(); this.term.loadAddon(this.fit); this.term.open(body);
+    try { if (window.WebLinksAddon) this.term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => window.open(uri, '_blank', 'noopener'))); } catch {}
+    try { if (window.SearchAddon) { this.search = new SearchAddon.SearchAddon(); this.term.loadAddon(this.search); } } catch {}
     body.style.background = (TERM_THEMES[termPrefs().theme] || TERM_THEMES.Midnight).background;
     this.term.onData(d => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'in', d })); });
     this.term.onResize(({ cols, rows }) => { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'rs', cols, rows })); });
