@@ -11,6 +11,7 @@ export function attach(port, cs, { label = '' } = {}) {
     let done = false, info = null;
     const finish = (code, msg) => {
       if (done) return; done = true;
+      try { stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l'); } catch {} // turn off any mouse reporting the session left on
       try { stdin.setRawMode(false); } catch {}
       try { stdin.pause(); } catch {}
       stdout.off('resize', onResize); stdin.off('data', onData);
@@ -19,14 +20,15 @@ export function attach(port, cs, { label = '' } = {}) {
       resolve(code);
     };
     const onResize = () => { try { ws.send(JSON.stringify({ t: 'rs', cols: stdout.columns, rows: stdout.rows })); } catch {} };
-    const onData = buf => {
+    const onData = chunk => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);  // Ink may leave stdin in string mode
       const i = buf.indexOf(0x1d); // Ctrl-]
       if (i >= 0) { const before = decoder.write(buf.subarray(0, i)); if (before) ws.send(JSON.stringify({ t: 'in', d: before })); return finish(0, `detached from ${info?.name || cs}; it keeps running. Reattach: cockpit attach ${cs}`); }
       const s = decoder.write(buf);
       if (s) { try { ws.send(JSON.stringify({ t: 'in', d: s })); } catch {} }
     };
     ws.onopen = () => {
-      stdin.setRawMode(true); stdin.resume();
+      stdin.setRawMode(true); try { stdin.setEncoding(null); } catch {} stdin.resume();  // force binary chunks, not strings
       stdin.on('data', onData); stdout.on('resize', onResize);
     };
     ws.onmessage = ev => {
