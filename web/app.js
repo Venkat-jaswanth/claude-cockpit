@@ -155,6 +155,103 @@ function attnItems() {
   const rank = { bad: 0, warn: 1, go: 2, '': 3 };
   return items.sort((a, b) => rank[a.sev] - rank[b.sev]);
 }
+// ---- Overview sections (all real data, rendered at final values; motion plays on view-enter) ----
+const fmtDur = m => { m = Math.max(0, Math.round(m)); if (m < 60) return m + 'm'; const h = Math.floor(m / 60); const r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; };
+// A rolling, persisted history of each seat's 5-hour utilisation, sampled from the state poll.
+// This is what the Runway sparkline draws; it fills in over time and survives reloads.
+let usageHist = {}; try { usageHist = JSON.parse(localStorage.getItem('cockpit.usageHist') || '{}'); } catch {}
+function sampleUsage() {
+  if (!state?.seats) return; const now = Date.now(), KEEP = 5.5 * 3600e3;
+  for (const s of state.seats) {
+    const p = s.usage?.fiveHour?.pct; if (p == null || !s.usage?.loggedIn || s.usage?.fiveHour?.assumedReset) continue;
+    const arr = usageHist[s.name] || (usageHist[s.name] = []); const last = arr[arr.length - 1];
+    if (!last || now - last[0] > 55e3 || Math.abs(p - last[1]) >= 1) arr.push([now, Math.round(p)]);
+    while (arr.length && now - arr[0][0] > KEEP) arr.shift();
+    if (arr.length > 160) arr.splice(0, arr.length - 160);
+  }
+  try { localStorage.setItem('cockpit.usageHist', JSON.stringify(usageHist)); } catch {}
+}
+// Build the sparkline line + area paths from a seat's samples, inside a 100x40 box (y grows down).
+function sparkPaths(name, pctNow) {
+  const arr = (usageHist[name] || []).slice();
+  if (pctNow != null && (!arr.length || Date.now() - arr[arr.length - 1][0] > 1500)) arr.push([Date.now(), Math.round(pctNow)]);
+  const y = p => 38 - (Math.min(100, Math.max(0, p)) / 100 * 34);
+  if (arr.length < 2) { const yy = (y(arr[0]?.[1] ?? pctNow ?? 0)).toFixed(1); return { line: `M0,${yy} L100,${yy}`, area: `M0,${yy} L100,${yy} L100,40 L0,40 Z` }; }
+  const t0 = arr[0][0], span = Math.max(1, arr[arr.length - 1][0] - t0);
+  const pts = arr.map(([t, p]) => [((t - t0) / span * 100).toFixed(1), y(p).toFixed(1)]);
+  const line = 'M' + pts.map(p => `${p[0]},${p[1]}`).join(' L');
+  return { line, area: `${line} L100,40 L0,40 Z` };
+}
+// Time until a seat's 5-hour window is exhausted, preferring the daemon's measured burn rate.
+function runwayFor(s) {
+  const b = s.burn, fh = s.usage?.fiveHour || {};
+  if (b && b.rising && b.etaMin != null) return { text: '≈ ' + fmtDur(b.etaMin), sub: `${b.perHour}%/h`, kind: lvl(fh.pct) };
+  if (fh.pct != null) return { text: 'steady', sub: fh.pct + '% used', kind: lvl(fh.pct) };
+  return { text: '—', sub: 'no reading yet', kind: 'unknown' };
+}
+const QUICK = [
+  { icon: '✓', name: 'Fix failing tests', text: 'Run the test suite, then fix whatever is failing until everything passes. Explain each fix briefly.' },
+  { icon: '⤢', name: 'Review my changes', text: 'Review my uncommitted changes for bugs, edge cases, and clarity. Summarise what they do and flag anything risky.' },
+  { icon: '✎', name: 'Write missing docs', text: 'Find the parts of this project that lack documentation and add clear, concise docs and comments.' },
+  { icon: '◎', name: 'Explain this project', text: 'Give me a tour of this codebase: the structure, the main modules, and how they fit together.' },
+];
+function ovQuickLaunch() {
+  const best = bestSeat(); const items = QUICK.concat(cmds().map(c => ({ icon: '»', name: c.name, text: c.text })));
+  return `<div class="section"><div class="card-head"><h2>Quick launch</h2><a href="#/settings" class="tiny">Edit commands</a></div>
+    <div class="grid auto ql-grid">${items.slice(0, 8).map(it => `<button class="card qcard lift" data-qltext="${esc(it.text)}">
+      <span class="qi">${it.icon}</span><span class="qt">${esc(it.name)}</span>
+      <span class="badge">→ ${esc(best ? best.name : 'best seat')}</span></button>`).join('')}</div></div>`;
+}
+function ovRunway() {
+  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null);
+  if (seats.length < 1) return '';
+  return `<div class="section"><div class="card-head"><h2>Runway</h2><span class="tiny muted">how long each account lasts at this pace</span></div>
+    <div class="grid auto">${seats.map(s => { const fh = s.usage.fiveHour, r = runwayFor(s), sp = sparkPaths(s.name, fh.pct), c = r.kind === 'unknown' ? 'faint' : r.kind;
+      return `<div class="card runway lift">
+        <div class="top"><div><div class="nm">${esc(s.name)}</div><div class="eta">${esc(r.text)}</div></div><div class="now num">${fh.pct}% now</div></div>
+        <svg class="spark" viewBox="0 0 100 40" preserveAspectRatio="none" style="color:var(--${c})"><path class="area" d="${sp.area}"/><path class="line" pathLength="1" d="${sp.line}"/></svg>
+        <div class="tiny muted">${esc(r.sub)}${fh.resetsAt && until(fh.resetsAt) ? ' · resets in ' + until(fh.resetsAt) : ''}</div>
+      </div>`; }).join('')}</div></div>`;
+}
+function ovResets() {
+  const FIVE = 5 * 3600e3;
+  const seats = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.resetsAt && !s.usage.fiveHour.assumedReset);
+  if (!seats.length) return '';
+  const rows = seats.map(s => { const fh = s.usage.fiveHour, ms = new Date(fh.resetsAt).getTime() - Date.now(), frac = Math.max(0, Math.min(1, 1 - ms / FIVE)), c = lvl(fh.pct) === 'unknown' ? 'faint' : lvl(fh.pct);
+    const when = new Date(fh.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }), u = until(fh.resetsAt);
+    return `<div class="row"><span class="nm">${esc(s.name)}</span><div class="track"><div class="fill" style="width:${Math.round(frac * 100)}%;background:var(--${c})"></div></div><span class="rt">${u ? `${when} · ${u}` : 'resetting'}</span></div>`; }).join('');
+  const weekly = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && (s.usage.weekly || []).length).map(s => { const w = s.usage.weekly.find(x => x.active) || s.usage.weekly[0]; return `${esc(s.name)} ${w.pct ?? '–'}%`; });
+  return `<div class="section"><div class="card-head"><h2>Window resets</h2><span class="tiny muted">the 5-hour clock</span></div>
+    <div class="card"><div class="wtl">${rows}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:14px">Weekly — ${weekly.join(' · ')}</div>` : ''}</div></div>`;
+}
+function ovCapacity() {
+  const head = state.seats.filter(s => !s.disabled && s.usage?.loggedIn && s.usage.fiveHour?.pct != null).map(s => ({ s, h: Math.max(0, 100 - s.usage.fiveHour.pct) }));
+  if (head.length < 1) return '';
+  const ready = head.filter(x => x.h >= 40).length, total = head.reduce((a, x) => a + x.h, 0) || 1;
+  const cols = ['var(--accent)', 'var(--accent-soft)', 'color-mix(in srgb,var(--accent) 45%,var(--panel-2))', 'color-mix(in srgb,var(--accent) 25%,var(--panel-2))'];
+  const segs = head.map((x, i) => `<i style="width:${Math.round(x.h / total * 100)}%;background:${cols[i % cols.length]}"></i>`).join('');
+  const legend = head.map((x, i) => `<span><i style="background:${cols[i % cols.length]}"></i>${esc(x.s.name)} · ${Math.round(x.h)}% free</span>`).join('');
+  return `<div class="section"><div class="card-head"><h2>Capacity</h2><span class="tiny muted">what you can take on right now</span></div>
+    <div class="card planner">
+      <div class="cap-n"><div class="big" data-count="${ready}" data-countfmt="int">${ready}</div><div class="lead">account${ready === 1 ? '' : 's'} ready for work · the bar shows each seat's share of your combined headroom.</div></div>
+      <div class="seg"><div class="segbar">${segs}</div><div class="legend">${legend}</div></div>
+    </div></div>`;
+}
+function ovToday() {
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const now = Date.now(), sess = state.sessions.filter(s => s.kind === 'claude' && s.managed && s.startedAt && s.startedAt >= dayStart.getTime());
+  if (!sess.length) return '';
+  const start = Math.min(Math.min(...sess.map(s => s.startedAt)), now - 3 * 3600e3), span = Math.max(1, now - start);
+  const seats = [...new Set(sess.map(s => s.seat || '—'))];
+  const lanes = seats.map(seat => { const blocks = sess.filter(s => (s.seat || '—') === seat).map(s => {
+      const a = Math.max(start, s.startedAt), b = Math.min(now, s.endedAt || now), left = (a - start) / span * 100, w = Math.max(2, (b - a) / span * 100);
+      const cls = s.alive ? (s.status === 'busy' ? 'busy' : '') : 'done';
+      return `<div class="gblock ${cls}" style="left:${left.toFixed(1)}%;width:${w.toFixed(1)}%" title="${esc(s.name || s.cs)} · ${s.alive ? 'started ' + ago(s.startedAt) : 'ended ' + ago(s.endedAt)}">${esc(s.name || s.cs)}</div>`; }).join('');
+    return `<div class="glane"><span class="nm">${esc(seat)}</span><div class="gtrack">${blocks}</div></div>`; }).join('');
+  const ticks = []; for (let i = 0; i < 4; i++) ticks.push(`<span>${new Date(start + span * i / 4).toLocaleTimeString([], { hour: 'numeric' })}</span>`); ticks.push('<span>now</span>');
+  return `<div class="section"><div class="card-head"><h2>Today</h2><span class="tiny muted">every session on one timeline</span></div>
+    <div class="card"><div class="gantt">${lanes}</div><div class="gaxis"><span></span><div class="ticks">${ticks.join('')}</div></div></div></div>`;
+}
 function vOverview() {
   if (!state.seats.length) return onboarding();
   const live = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed);
@@ -190,6 +287,11 @@ function vOverview() {
     </div></div>
     <div class="section"><div class="card-head"><h2>Needs you${attn.length ? ` <span class="badge warn">${attn.length}</span>` : ''}</h2></div>${attnHtml}</div>
     <div class="section"><div class="card-head"><h2>Running now <span class="badge">${running.length}</span></h2><a href="#/sessions" class="tiny">All sessions</a></div>${runHtml}${outsideNote}</div>
+    ${ovQuickLaunch()}
+    ${ovRunway()}
+    ${ovResets()}
+    ${ovCapacity()}
+    ${ovToday()}
     <div class="grid cols-2">
       <div class="card flat"><div class="card-head"><h2>Today</h2><a href="#/usage" class="tiny">Usage</a></div>
         <div class="statrow">
