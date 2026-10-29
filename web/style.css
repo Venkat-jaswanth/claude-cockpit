@@ -446,6 +446,14 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 .qcard .qt { font-weight: 600; letter-spacing: -0.01em; }
 .qcard::after { content: ""; position: absolute; top: 0; left: -60%; width: 45%; height: 100%; background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--accent) 14%, transparent), transparent); transform: skewX(-18deg); transition: left .6s var(--ease-out); pointer-events: none; }
 .qcard:hover::after { left: 130%; }
+.qcard .ql-del { position: absolute; top: 7px; right: 7px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); font-size: 16px; line-height: 1; opacity: 0; transition: opacity 140ms ease, background 140ms ease, color 140ms ease; z-index: 2; }
+.qcard:hover .ql-del, .qcard:focus-within .ql-del { opacity: .8; }
+.qcard .ql-del:hover { opacity: 1; background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.qcard.qadd { justify-content: center; border-style: dashed; border-color: var(--line-strong); background: transparent; box-shadow: none; gap: 6px; }
+.qcard.qadd:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.qcard.qadd .qi { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--muted); }
+.qcard.qadd::after { display: none; }
+.qcard.sample { opacity: .9; }
 
 .runway .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .runway .nm { font-size: 12.5px; color: var(--muted); }
