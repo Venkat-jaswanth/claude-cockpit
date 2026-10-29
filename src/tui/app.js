@@ -1,6 +1,9 @@
 // The cockpit TUI — a terminal-native control room, rendered with Ink. It talks to the same
 // daemon the dashboard does (src/client.js) and is launched by `cockpit tui`.
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+import { execFile } from 'node:child_process';
 import React, { useState, useEffect } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
 import htm from 'htm';
@@ -33,9 +36,26 @@ const VERBS = [
   { name: 'projects', hint: 'browse every project' },
   { name: 'new', hint: 'start a session in this folder' },
   { name: 'usage', hint: 'account usage & limits' },
+  { name: 'ask', hint: 'chat with the cockpit assistant' },
   { name: 'help', hint: 'keyboard reference' },
   { name: 'quit', hint: 'exit cockpit' },
 ];
+// The cockpit assistant: a chat that runs on one of the user's own seats, headless, no tools.
+const BOT_DIR = path.join(os.homedir(), '.claude-cockpit', 'bot');
+const BOT_SYS = "You are the assistant inside claude-cockpit, a tool for running many Claude Code sessions across several accounts (\"seats\") on one machine. Help the person operate it: explain its commands (status, projects, usage, handoff, new, attach, rename, ask), seats and accounts, the 5-hour usage limits and hand-offs, and setup. Talk like a helpful teammate over text — a few sentences, warm and concrete, no walls of text, no markdown headings. Give the exact command or steps; never claim to have done something yourself. If asked something unrelated, answer briefly and steer back to cockpit.";
+function runBot(seat, message, convId) {
+  return new Promise(resolve => {
+    try { fs.mkdirSync(BOT_DIR, { recursive: true }); } catch {}
+    const args = ['-p', message, '--output-format', 'json', '--append-system-prompt', BOT_SYS, '--permission-prompts', 'none'];
+    if (convId) args.push('--resume', convId);
+    execFile('claude', args, { cwd: BOT_DIR, env: { ...process.env, CLAUDE_CONFIG_DIR: seat.configDir }, maxBuffer: 16 * 1024 * 1024, timeout: 120000 }, (err, stdout, stderr) => {
+      const raw = String(stdout || '');
+      if (!raw.trim()) return resolve({ ok: false, error: String((stderr || (err && err.message) || 'no response')).split('\n')[0].slice(0, 200) });
+      try { const j = JSON.parse(raw); resolve({ ok: !j.is_error, text: (j.result || '').trim() || '(no reply)', id: j.session_id || convId, error: j.is_error ? (j.result || 'error') : null }); }
+      catch { resolve({ ok: true, text: raw.trim(), id: convId }); }
+    });
+  });
+}
 function meter(pct, width = 18) { const n = Math.round(Math.max(0, Math.min(100, pct || 0)) / 100 * width); return '█'.repeat(n) + '░'.repeat(width - n); }
 function burnText(s) { const b = s.burn; if (b && b.rising && b.etaMin != null && b.etaMin > 0 && b.etaMin <= 600) return `▲ ${b.perHour}%/h · ~${b.etaMin >= 60 ? Math.floor(b.etaMin / 60) + 'h' + (b.etaMin % 60) + 'm' : b.etaMin + 'm'} left`; return 'steady'; }
 
@@ -90,6 +110,10 @@ function App({ port, onDone }) {
   const [mode, setMode] = useState('list');       // list | rename | confirm | filter | cmd | help
   const [buf, setBuf] = useState('');
   const [msg, setMsg] = useState('');
+  const [botMsgs, setBotMsgs] = useState([]);
+  const [botBuf, setBotBuf] = useState('');
+  const [botPending, setBotPending] = useState(false);
+  const [botConvId, setBotConvId] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -102,6 +126,15 @@ function App({ port, onDone }) {
 
   const post = (p, body) => request(port, 'POST', p, body || {}).catch(() => {});
   const flash = m => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
+  function submitBot() {
+    const message = botBuf.trim(); if (!message || botPending) return;
+    const logged = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
+    const seat = logged.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0];
+    setBotBuf(''); setBotMsgs(m => [...m, { role: 'you', text: message }]);
+    if (!seat) { setBotMsgs(m => [...m, { role: 'bot', text: 'No logged-in account to run on — add or log in a seat first.' }]); return; }
+    setBotPending(true);
+    runBot(seat, message, botConvId).then(res => { setBotPending(false); setBotMsgs(m => [...m, { role: 'bot', text: res.ok ? res.text : '⚠ ' + (res.error || 'failed') }]); if (res.ok && res.id) setBotConvId(res.id); });
+  }
   const liveBySid = new Map((st?.sessions || []).filter(s => s.alive).map(s => [s.sessionId, s]));
   const _liveSeats = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
   const bestName = _liveSeats.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0]?.name;
@@ -132,6 +165,7 @@ function App({ port, onDone }) {
     else if (m.name === 'projects') { setView('projects'); setOpenProject(null); setPsel(0); }
     else if (m.name === 'usage') setView('usage');
     else if (m.name === 'new') onDone({ action: 'new', cwd: process.cwd() });
+    else if (m.name === 'ask') setView('bot');
     else if (m.name === 'help') setMode('help');
     else if (m.name === 'quit') onDone({ action: 'quit' });
   }
@@ -160,6 +194,16 @@ function App({ port, onDone }) {
     }
     if (mode === 'confirm') { if (input === 'y' && cur) { post(`/api/sessions/${encodeURIComponent(cur.cs)}/stop`); flash('stopping ' + (cur.name || cur.cs)); } setMode('list'); return; }
     if (mode === 'help') { setMode('list'); return; }
+
+    // ---- bot view: a chat, so keystrokes are the message ----
+    if (view === 'bot') {
+      if (key.ctrl && input === 'c') return onDone({ action: 'quit' });
+      if (key.escape) { setView('status'); return; }
+      if (key.return) return submitBot();
+      if (key.backspace || key.delete) return setBotBuf(b => b.slice(0, -1));
+      if (input && !key.ctrl && !key.meta) return setBotBuf(b => b + input);
+      return;
+    }
 
     // ---- global ----
     if (key.ctrl && input === 'c') return onDone({ action: 'quit' });
@@ -195,6 +239,7 @@ function App({ port, onDone }) {
     if (key.downArrow || input === 'j') return setSel(s => Math.min(flat.length - 1, s + 1));
     if (input === 'p') { setView('projects'); setOpenProject(null); setPsel(0); return; }
     if (input === 'u') { setView('usage'); return; }
+    if (input === 'a') { setView('bot'); return; }
     if (input === 'n') return onDone({ action: 'new', cwd: process.cwd() });
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
     if (!cur) return;
@@ -213,7 +258,9 @@ function App({ port, onDone }) {
       ? (openProject ? '↵ open · esc back · q quit' : '↵ open project · esc status · q quit')
       : view === 'usage'
         ? 'r refresh · esc status · q quit'
-        : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · : cmd · ? more';
+        : view === 'bot'
+          ? 'type a message · ↵ send · esc leave'
+          : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · a ask · : cmd · ? more';
 
   return html`<${Box} flexDirection="column" padding=${1}>
     <${Logo} />
@@ -263,6 +310,17 @@ function App({ port, onDone }) {
             ${s.probe?.running ? html`<${Text} color=${ACCENT}>checking…</${Text}>` : html`<${Text} color=${(s.burn && s.burn.rising) ? 'red' : 'gray'}>${burnText(s)}</${Text}>`}
           </${Box}>`}
         </${Box}>`; })}
+    </${Box}>` : null}
+
+    ${view === 'bot' ? html`<${Box} flexDirection="column">
+      <${Box} marginBottom=${1}><${Text} bold>Assistant</${Text}><${Text} color="gray">${`   texting cockpit${bestName ? ' · on ' + bestName : ''}`}</${Text}></${Box}>
+      ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit — commands, accounts, hand-offs, usage, setup.</${Text}>`
+        : botMsgs.slice(-10).map((mm, i) => html`<${Box} key=${i} flexDirection="column" marginBottom=${1}>
+            <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '⇄ cockpit'}</${Text}>
+            <${Text} wrap="wrap">${mm.text}</${Text}>
+          </${Box}>`)}
+      ${botPending ? html`<${Box}><${Text} color=${ACCENT}>⇄ thinking…</${Text}></${Box}>` : null}
+      <${Box} marginTop=${1}><${Text} color=${ACCENT}>› </${Text}><${Text}>${botBuf}</${Text}><${Text} color=${ACCENT}>▋</${Text}></${Box}>
     </${Box}>` : null}
 
     ${mode === 'cmd' ? html`<${Box} marginTop=${1} flexDirection="column">
