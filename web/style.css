@@ -516,8 +516,13 @@ select.sel:focus, input.inp:focus, .field input:focus, .field select:focus, .inl
 .ws-grid { position: relative; flex: 1; min-width: 0; display: grid; gap: 12px; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(240px, auto); }
 /* session rail */
 .ws-rail { width: 214px; flex: none; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 8px; box-shadow: var(--shadow); }
-.rail-head { padding: 2px 6px 6px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
-.rail-proj { font-size: 11px; font-weight: 700; color: var(--accent); padding: 9px 6px 3px; letter-spacing: -0.01em; }
+.rail-top { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 4px; }
+.rail-head { font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.rail-best { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.rail-proj { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--accent); padding: 8px 6px 3px; letter-spacing: -0.01em; cursor: pointer; }
+.rail-chev { color: var(--faint); font-size: 9px; width: 9px; display: inline-block; }
+.rail-addall { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 10.5px; border: 1px solid var(--line-strong); border-radius: 5px; padding: 0 5px; cursor: pointer; }
+.rail-addall:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .rail-item { display: flex; align-items: center; gap: 7px; padding: 6px 7px; border-radius: 8px; cursor: pointer; transition: background 120ms ease; }
 .rail-item:hover { background: var(--panel-2); }
 .rail-item.in { box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }

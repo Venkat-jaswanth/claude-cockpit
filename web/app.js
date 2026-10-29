@@ -968,17 +968,22 @@ const wsCtl = {
     document.addEventListener('keydown', this._onKey, true);
   },
   // The left rail lists every running session grouped by project, needs-you first, coloured by seat.
-  railSigNow() { return this.running().map(s => s.cs + s.status + s.seat + (s.name || '')).join(',') + '|' + this.order.join(',') + '|' + (this.focus || ''); },
+  railSigNow() { const seats = (state?.seats || []).map(z => z.name + (z.usage?.fiveHour?.pct ?? '')).join(','); return this.running().map(s => s.cs + s.status + s.seat + (s.name || '')).join(',') + '|' + this.order.join(',') + '|' + (this.focus || '') + '|' + seats + '|' + [...(this._railCollapsed || [])].join(','); },
   railHtml() {
     const running = this.running();
-    if (!running.length) return '<div class="rail-empty tiny muted">No running sessions yet. Press New session.</div>';
+    const live = (state?.seats || []).filter(z => !z.disabled && z.usage?.loggedIn);
+    const best = live.slice().sort((a, b) => (seatPct(a) ?? 999) - (seatPct(b) ?? 999))[0];
+    const head = `<div class="rail-top"><span class="rail-head tiny muted">Running · ${running.length}</span>${best ? `<span class="rail-best tiny" title="freshest account"><span class="rail-dot" style="background:${seatColor(best.name)}"></span>${esc(best.name)} ${seatPct(best) ?? '–'}%</span>` : ''}</div>`;
+    if (!running.length) return head + '<div class="rail-empty tiny muted">No running sessions yet. Press New session.</div>';
     const groups = new Map();
     for (const s of running) { const k = railProj(s); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
-    const open = new Set(this.order);
-    let out = `<div class="rail-head tiny muted">Running · ${running.length}</div>`;
+    const open = new Set(this.order); const collapsed = this._railCollapsed || (this._railCollapsed = new Set());
+    let out = head;
     for (const [proj, items] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       items.sort((a, b) => (b.status === 'idle' ? 1 : 0) - (a.status === 'idle' ? 1 : 0));   // finished-turn sessions first
-      out += `<div class="rail-proj">${esc(proj)}<span class="muted"> · ${items.length}</span></div>`;
+      const isCol = collapsed.has(proj), unopened = items.filter(s => !open.has(s.cs)).length;
+      out += `<div class="rail-proj" data-rail-proj="${esc(proj)}"><span class="rail-chev">${isCol ? '▸' : '▾'}</span>${esc(proj)}<span class="muted"> · ${items.length}</span>${unopened ? `<span class="rail-addall" role="button" data-rail-addall="${esc(proj)}" title="Open all ${unopened} here">+${unopened}</span>` : ''}</div>`;
+      if (isCol) continue;
       for (const s of items) {
         const inGrid = open.has(s.cs), ready = s.status === 'idle';
         out += `<div class="rail-item${inGrid ? ' in' : ''}${this.focus === s.cs ? ' focused' : ''}" data-rail="${esc(s.cs)}" title="${inGrid ? 'Focus in workspace' : 'Add to workspace'}">
@@ -1010,6 +1015,8 @@ const wsCtl = {
       if (e.target.closest('[data-ws-new]')) return openSheet();
       if (e.target.closest('[data-ws-unfocus]')) return this.setFocus(null);
       const ra = e.target.closest('[data-rail-act]'); if (ra) { e.stopPropagation(); return this.railAction(ra.dataset.railAct, ra.dataset.cs); }
+      const raa = e.target.closest('[data-rail-addall]'); if (raa) { e.stopPropagation(); return this.addAllIn(raa.dataset.railAddall); }
+      const rp = e.target.closest('[data-rail-proj]'); if (rp) { const p = rp.dataset.railProj, c = this._railCollapsed || (this._railCollapsed = new Set()); c.has(p) ? c.delete(p) : c.add(p); return this.refreshRail(); }
       const ri = e.target.closest('[data-rail]'); if (ri) { const cs = ri.dataset.rail; return this.order.includes(cs) ? this.setFocus(this.focus === cs ? null : cs) : this.addPane(cs); }
       const wp = e.target.closest('[data-wp]'); if (wp) { const cs = wp.closest('.wp')?.dataset.cs; if (cs) this.paneAction(wp.dataset.wp, cs); }
     });
@@ -1173,6 +1180,7 @@ const wsCtl = {
     this.refreshBar(); this.refreshRail(); this.refreshPane(cs); this.applyTracks(); this.fitAll();
   },
   addAll() { for (const s of this.running()) if (!this.panes.has(s.cs)) this.addPane(s.cs); },
+  addAllIn(proj) { for (const s of this.running()) if (railProj(s) === proj && !this.panes.has(s.cs)) this.addPane(s.cs); },
   removePane(cs) {
     const pane = this.panes.get(cs); if (pane) { pane.dispose(); pane.node.remove(); this.panes.delete(cs); }
     this.order = this.order.filter(x => x !== cs); this.save();
