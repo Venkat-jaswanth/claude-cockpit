@@ -877,6 +877,35 @@ const wsCtl = {
       const wp = e.target.closest('[data-wp]'); if (wp) { const cs = wp.closest('.wp')?.dataset.cs; if (cs) this.paneAction(wp.dataset.wp, cs); }
     });
     this.rootEl.addEventListener('change', e => { const a = e.target.closest('[data-ws-add]'); if (a && a.value) { const v = a.value; a.value = ''; this.addPane(v); } });
+    this.rootEl.addEventListener('pointerdown', e => { const g = e.target.closest('[data-wp-grip]'); if (g) { const cs = g.closest('.wp')?.dataset.cs; if (cs) this.startPaneDrag(cs, e); } });
+  },
+  // Drag a pane by its grip to a new slot. Nodes are re-ordered in place, so terminals keep their connection.
+  startPaneDrag(cs, e) {
+    e.preventDefault(); const src = this.panes.get(cs); if (!src || this.focus) return;
+    const sx = e.clientX, sy = e.clientY; let started = false, ghost = null, target = null, after = false;
+    const begin = () => { started = true; ghost = document.createElement('div'); ghost.className = 'wp-ghost'; ghost.textContent = this.sessOf(cs)?.name || cs; document.body.appendChild(ghost); src.node.classList.add('wp-dragging-src'); document.body.classList.add('ws-reordering'); };
+    const clearDrop = () => this.panes.forEach(p => p.node.classList.remove('wp-drop-before', 'wp-drop-after'));
+    const move = ev => {
+      if (!started) { if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 6) return; begin(); }  // small threshold, so a click isn't a drag
+      ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px';
+      const el = document.elementFromPoint(ev.clientX, ev.clientY), node = el && el.closest('.wp'); clearDrop();
+      if (node && node.dataset.cs !== cs && !node.classList.contains('wp-hidden')) { const r = node.getBoundingClientRect(); after = ev.clientY > r.top + r.height / 2; node.classList.add(after ? 'wp-drop-after' : 'wp-drop-before'); target = node.dataset.cs; } else target = null;
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      if (!started) return;
+      if (ghost) ghost.remove(); src.node.classList.remove('wp-dragging-src'); document.body.classList.remove('ws-reordering'); clearDrop();
+      if (target && target !== cs) this.reorder(cs, target, after);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  },
+  reorder(srcCs, targetCs, after) {
+    const arr = this.order.filter(x => x !== srcCs); let ti = arr.indexOf(targetCs); if (ti < 0) return;
+    arr.splice(after ? ti + 1 : ti, 0, srcCs); this.order = arr; this.save();
+    // Re-append existing pane nodes in the new order (keeps each terminal alive), then the gutters on top.
+    for (const c of this.order) { const p = this.panes.get(c); if (p) this.grid.appendChild(p.node); }
+    for (const h of this.handles) this.grid.appendChild(h);
+    this.colFr = []; this.rowFr = []; this.applyTracks(); this.fitAll();
   },
   barHtml() {
     const running = this.running(), open = new Set(this.order), addable = running.filter(s => !open.has(s.cs));
@@ -894,6 +923,7 @@ const wsCtl = {
     const seat = (state?.seats || []).find(z => z.name === s.seat); const p = seat ? seatPct(seat) : null;
     return `<div class="wp st-${esc(s.status || 'idle')}" data-cs="${esc(cs)}">
       <div class="wp-head">
+        <span class="wp-grip" data-wp-grip title="Drag to rearrange"><i></i><i></i><i></i><i></i><i></i><i></i></span>
         <span class="dot ${esc(s.status || 'idle')}"></span>
         <span class="wp-name">${esc(s.name || cs)}</span>
         <span class="wp-seat"><span class="ring xs" style="--p:${p ?? 0};--c:var(--${lvl(p) === 'unknown' ? 'faint' : lvl(p)})"></span>${esc(s.seat || '?')}${p != null ? ` ${p}%` : ''}</span>
