@@ -30,7 +30,7 @@ function group(sessions, filter) {
   const list = f ? sessions.filter(s => (s.name || s.cs).toLowerCase().includes(f) || projOf(s).toLowerCase().includes(f)) : sessions;
   const map = new Map();
   for (const s of list) { const k = projOf(s); (map.get(k) || map.set(k, []).get(k)).push(s); }
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([project, items]) => ({ project, items }));
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([project, items]) => ({ project, items: items.sort((a, b) => (b.status === 'idle' ? 1 : 0) - (a.status === 'idle' ? 1 : 0)) }));  // needs-you first
 }
 
 const VERBS = [
