@@ -884,6 +884,10 @@ class WsPane {
   markEnded(code) { this.ended = true; const o = this.node.querySelector('.wp-ended'); if (o) { o.hidden = false; if (code != null) { const c = o.querySelector('.wp-ended-code'); if (c) c.textContent = 'exit ' + code; } } }
   dispose() { try { this.ws && this.ws.close(); } catch {} try { this.term && this.term.dispose(); } catch {} }
 }
+// Each seat gets a stable colour, used on the workspace rail and each pane's left edge.
+const SEAT_COLORS = ['#5eead4', '#f0abfc', '#fca5a5', '#fcd34d', '#7dd3fc', '#c4b5fd', '#86efac', '#fdba74'];
+function seatColor(name) { const seats = state?.seats || []; let i = seats.findIndex(s => s.name === name); if (i < 0) { i = 0; for (const ch of String(name || '')) i += ch.charCodeAt(0); } return SEAT_COLORS[Math.abs(i) % SEAT_COLORS.length]; }
+function railProj(s) { const cwd = s.cwd || ''; if (/scratch-workspaces/.test(cwd)) return 'scratch'; return cwd ? (cwd.replace(/\/+$/, '').split('/').pop() || 'unknown') : 'unknown'; }
 const wsCtl = {
   panes: new Map(), order: [], layout: 'auto', filter: 'all', focus: null, editingCs: null,
   colFr: [], rowFr: [], handles: [], _cols: 0, _rows: 0, _vsig: '', MINROW: 240,
@@ -902,9 +906,43 @@ const wsCtl = {
     const aliveIds = new Set(this.running().map(s => s.cs));
     if (!this.order.length) this.order = this.runningIds().slice(0, 4);
     else this.order = this.order.filter(cs => aliveIds.has(cs));   // the workspace holds only running sessions
-    contentEl.innerHTML = `<div class="ws"><div class="ws-bar" id="wsBar"></div><div class="ws-grid" id="wsGrid"></div></div>`;
-    this.rootEl = contentEl.querySelector('.ws'); this.bar = contentEl.querySelector('#wsBar'); this.grid = contentEl.querySelector('#wsGrid');
-    this.wireRoot(); this.refreshBar(); this.renderGrid(); this.built = true;
+    contentEl.innerHTML = `<div class="ws"><div class="ws-bar" id="wsBar"></div><div class="ws-body"><div class="ws-rail" id="wsRail"></div><div class="ws-grid" id="wsGrid"></div></div></div>`;
+    this.rootEl = contentEl.querySelector('.ws'); this.bar = contentEl.querySelector('#wsBar'); this.grid = contentEl.querySelector('#wsGrid'); this.rail = contentEl.querySelector('#wsRail');
+    this.wireRoot(); this.refreshBar(); this.refreshRail(); this.renderGrid(); this.built = true;
+  },
+  // The left rail lists every running session grouped by project, needs-you first, coloured by seat.
+  railSigNow() { return this.running().map(s => s.cs + s.status + s.seat + (s.name || '')).join(',') + '|' + this.order.join(',') + '|' + (this.focus || ''); },
+  railHtml() {
+    const running = this.running();
+    if (!running.length) return '<div class="rail-empty tiny muted">No running sessions yet. Press New session.</div>';
+    const groups = new Map();
+    for (const s of running) { const k = railProj(s); (groups.get(k) || groups.set(k, []).get(k)).push(s); }
+    const open = new Set(this.order);
+    let out = `<div class="rail-head tiny muted">Running · ${running.length}</div>`;
+    for (const [proj, items] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      items.sort((a, b) => (b.status === 'idle' ? 1 : 0) - (a.status === 'idle' ? 1 : 0));   // finished-turn sessions first
+      out += `<div class="rail-proj">${esc(proj)}<span class="muted"> · ${items.length}</span></div>`;
+      for (const s of items) {
+        const inGrid = open.has(s.cs), ready = s.status === 'idle';
+        out += `<div class="rail-item${inGrid ? ' in' : ''}${this.focus === s.cs ? ' focused' : ''}" data-rail="${esc(s.cs)}" title="${inGrid ? 'Focus in workspace' : 'Add to workspace'}">
+          <span class="rail-dot" style="background:${seatColor(s.seat)}"></span>
+          <span class="rail-name">${esc(s.name || s.cs)}</span>
+          ${ready ? '<span class="rail-ready" title="finished its turn — needs you">●</span>' : ''}
+          <span class="rail-acts">
+            <span class="rail-act" role="button" data-rail-act="rename" data-cs="${esc(s.cs)}" title="Rename">✎</span>
+            <span class="rail-act" role="button" data-rail-act="handoff" data-cs="${esc(s.cs)}" title="Hand off to the freshest seat">⇄</span>
+            <span class="rail-act danger" role="button" data-rail-act="stop" data-cs="${esc(s.cs)}" title="Stop">✕</span>
+          </span>
+        </div>`;
+      }
+    }
+    return out;
+  },
+  refreshRail() { if (!this.rail) return; this.railSig = this.railSigNow(); this.rail.innerHTML = this.railHtml(); },
+  railAction(act, cs) {
+    if (act === 'rename') { const s = this.sessOf(cs), name = prompt('Rename this session (leave blank to use the default):', s?.name || ''); if (name === null) return; renameEverywhere({ cs, sessionId: s?.sessionId, name }).then(nm => toast(nm ? 'Renamed' : 'Name cleared')).catch(() => {}); return; }
+    if (act === 'handoff') return post(`/api/sessions/${encodeURIComponent(cs)}/handoff`, { toSeat: null }).then(j => toast(j.queued ? `Queued → ${j.to}` : `→ ${j.to}`)).catch(() => {});
+    if (act === 'stop') { if (confirm('Stop this session? You can resume it later from Sessions or Projects.')) post(`/api/sessions/${encodeURIComponent(cs)}/stop`).then(() => toast('Session stopped')).catch(() => {}); }
   },
   wireRoot() {
     this.rootEl.addEventListener('click', e => {
@@ -914,6 +952,8 @@ const wsCtl = {
       if (e.target.closest('[data-ws-addall]')) return this.addAll();
       if (e.target.closest('[data-ws-new]')) return openSheet();
       if (e.target.closest('[data-ws-unfocus]')) return this.setFocus(null);
+      const ra = e.target.closest('[data-rail-act]'); if (ra) { e.stopPropagation(); return this.railAction(ra.dataset.railAct, ra.dataset.cs); }
+      const ri = e.target.closest('[data-rail]'); if (ri) { const cs = ri.dataset.rail; return this.order.includes(cs) ? this.setFocus(this.focus === cs ? null : cs) : this.addPane(cs); }
       const wp = e.target.closest('[data-wp]'); if (wp) { const cs = wp.closest('.wp')?.dataset.cs; if (cs) this.paneAction(wp.dataset.wp, cs); }
     });
     this.rootEl.addEventListener('change', e => { const a = e.target.closest('[data-ws-add]'); if (a && a.value) { const v = a.value; a.value = ''; this.addPane(v); } });
@@ -967,7 +1007,7 @@ const wsCtl = {
   paneHtml(cs) {
     const s = (state?.sessions || []).find(x => x.cs === cs) || { cs, name: cs, seat: '?', status: 'lost' };
     const seat = (state?.seats || []).find(z => z.name === s.seat); const p = seat ? seatPct(seat) : null;
-    return `<div class="wp st-${esc(s.status || 'idle')}" data-cs="${esc(cs)}">
+    return `<div class="wp st-${esc(s.status || 'idle')}" data-cs="${esc(cs)}" style="--seatcol:${seatColor(s.seat)}">
       <div class="wp-head">
         <span class="wp-grip" data-wp-grip title="Drag to rearrange"><i></i><i></i><i></i><i></i><i></i><i></i></span>
         <span class="dot ${esc(s.status || 'idle')}"></span>
@@ -1072,7 +1112,7 @@ const wsCtl = {
     this.order.push(cs); this.save();
     const node = this.makeNode(cs); this.grid.appendChild(node);
     const alive = !!(state?.sessions || []).find(x => x.cs === cs && x.alive); const pane = new WsPane(cs, node, !alive); this.panes.set(cs, pane); pane.mount();
-    this.refreshBar(); this.refreshPane(cs); this.applyTracks(); this.fitAll();
+    this.refreshBar(); this.refreshRail(); this.refreshPane(cs); this.applyTracks(); this.fitAll();
   },
   addAll() { for (const s of this.running()) if (!this.panes.has(s.cs)) this.addPane(s.cs); },
   removePane(cs) {
@@ -1080,12 +1120,12 @@ const wsCtl = {
     this.order = this.order.filter(x => x !== cs); this.save();
     if (this.focus === cs) { this.focus = null; this.rootEl.classList.remove('focus'); }
     if (!this.order.length) { this.clearHandles(); this.grid.classList.add('is-empty'); this.grid.appendChild(this.emptyNode()); } else this.applyTracks();
-    this.refreshBar(); this.fitAll();
+    this.refreshBar(); this.refreshRail(); this.fitAll();
   },
   closeMenus() { this.panes.forEach(p => { const m = p.node.querySelector('.wp-menu'); if (m) m.hidden = true; }); },
   setLayout(l) { this.layout = l; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
   setFilter(f) { this.filter = f; this.colFr = []; this.rowFr = []; this.save(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
-  setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.applyTracks(); this.refreshBar(); this.fitAll(); },
+  setFocus(cs) { this.focus = cs; this.rootEl.classList.toggle('focus', !!cs); this.refreshAll(); this.applyTracks(); this.refreshBar(); this.refreshRail(); this.fitAll(); },
   paneAction(action, cs) {
     if (action === 'menu') { const pane = this.panes.get(cs); if (!pane) return; const m = pane.node.querySelector('.wp-menu'); const open = m && m.hidden; this.closeMenus(); if (m && open) m.hidden = false; return; }
     if (action === 'max') return this.setFocus(this.focus === cs ? null : cs);
@@ -1099,6 +1139,7 @@ const wsCtl = {
     const pane = this.panes.get(cs); if (!pane) return; const node = pane.node;
     const s = (state?.sessions || []).find(x => x.cs === cs); const status = s?.status || (pane.ended ? 'ended' : 'idle');
     node.className = 'wp st-' + status + (this.focus === cs ? ' focused' : '') + (node.classList.contains('wp-hidden') ? ' wp-hidden' : '');
+    if (s) node.style.setProperty('--seatcol', seatColor(s.seat));
     const dot = node.querySelector('.dot'); if (dot) dot.className = 'dot ' + status;
     const nm = node.querySelector('.wp-name'); if (nm && s && this.editingCs !== cs) nm.textContent = s.name || cs;
     const seat = s ? (state?.seats || []).find(z => z.name === s.seat) : null; const p = seat ? seatPct(seat) : null;
@@ -1114,10 +1155,11 @@ const wsCtl = {
     // Keep only running sessions: a pane whose session ended or was lost drops out automatically.
     for (const cs of [...this.order]) { const s = this.sessOf(cs); if (!s || !s.alive) this.removePane(cs); }
     if (this.barSigNow() !== this.barSig) this.refreshBar();
+    if (this.railSigNow() !== this.railSig) this.refreshRail();
     this.refreshAll();
     const vsig = this.visibleOrder().join(',') + '|' + (this.focus || '') + '|' + this.layout + '|' + this.filter;
     if (vsig !== this._vsig) { this._vsig = vsig; this.applyTracks(); this.fitAll(); }
   },
-  teardown() { this.closeMenus(); this.clearHandles(); this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = null; }
+  teardown() { this.closeMenus(); this.clearHandles(); this.panes.forEach(p => p.dispose()); this.panes.clear(); this.built = false; this.rootEl = this.grid = this.bar = this.rail = null; }
 };
 window.addEventListener('resize', () => { if (view === 'workspace' && wsCtl.built) { wsCtl.applyTracks(); wsCtl.fitAll(); } });
