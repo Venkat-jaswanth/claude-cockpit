@@ -73,7 +73,7 @@ try {
   console.log('session on seat a');
   const a = term(['start', '--name', 'e2e']);
   check(await a.waitFor(/seat=dot-claude session=([0-9a-f-]{36}) mode=new/), 'claude started on seat a with a pre-assigned session id');
-  check(/cockpit · e2e on seat a · Ctrl-\] detaches/.test(a.out), 'attach banner shown');
+  check(/Ctrl-\]\s+back to cockpit/.test(a.out) && /e2e on seat a\b/.test(a.out), 'attach banner shown');
   const sessionId = a.out.match(/session=([0-9a-f-]{36})/)[1];
   await sleep(500);
   let s = (await st()).sessions.find(x => x.managed && x.kind === 'claude');
@@ -171,7 +171,7 @@ try {
   s = (await st()).sessions.find(x => x.cs === s.cs);
   check(s.alive && s.viewers === 0, 'session keeps running with no viewers');
   const b = term(['attach', 'e2e']);
-  check(await b.waitFor(/cockpit · e2e on seat [ab]\b/), 'reattached by name');
+  check(await b.waitFor(/back to cockpit · the session keeps running \(e2e on seat [ab]\b/), 'reattached by name');
   check(/\[fake-claude\] seat=(b|dot-claude)/.test(b.out), 'scrollback replayed on attach');
   await sleep(300);
   b.mark(); b.write('/exit\r');

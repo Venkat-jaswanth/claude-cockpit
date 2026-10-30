@@ -34,7 +34,7 @@ export function attach(port, cs, { label = '' } = {}) {
     ws.onmessage = ev => {
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.t === 'out') stdout.write(m.d);
-      else if (m.t === 'info') { if (!info) stdout.write(`\x1b[2mcockpit · ${label || m.name || cs} on seat ${m.seat} · Ctrl-] detaches, the session keeps running · http://127.0.0.1:${port}\x1b[0m\r\n`); info = m; }
+      else if (m.t === 'info') { if (!info) stdout.write(`\r\n\x1b[1;36m  Ctrl-]\x1b[0m\x1b[2m  back to cockpit · the session keeps running (${label || m.name || cs} on seat ${m.seat}; also open at http://127.0.0.1:${port})\x1b[0m\r\n\r\n`); info = m; }
       else if (m.t === 'exit') finish(typeof m.code === 'number' ? m.code : 0, `session ${info?.name || cs} ended`);
     };
     ws.onerror = () => finish(1, 'could not reach the cockpit daemon');

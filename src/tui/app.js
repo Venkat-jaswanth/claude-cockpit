@@ -132,13 +132,13 @@ function Row({ s, selected, seatCol }) {
   </${Box}>`;
 }
 
-function App({ port, onDone }) {
+function App({ port, onDone, initial }) {
   const [st, setSt] = useState(null);
   const [lib, setLib] = useState(null);
-  const [view, setView] = useState('status');     // status | projects
+  const [view, setView] = useState(initial?.view || 'status');     // status | projects
   const [sel, setSel] = useState(0);
   const [psel, setPsel] = useState(0);            // projects level-1 / level-2 cursor
-  const [openProject, setOpenProject] = useState(null);
+  const [openProject, setOpenProject] = useState(initial?.openProject || null);
   const [filter, setFilter] = useState('');
   const [mode, setMode] = useState('list');       // list | rename | confirm | filter | cmd | help
   const [buf, setBuf] = useState('');
@@ -169,6 +169,9 @@ function App({ port, onDone }) {
 
   const post = (p, body) => request(port, 'POST', p, body || {}).catch(() => {});
   const flash = m => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
+  // Leave the TUI to attach/resume/start a session, remembering where we were so we land
+  // back on the same view (e.g. projects) when the session detaches with Ctrl-].
+  const leave = (a) => onDone({ ...a, from: { view, openProject } });
   function submitBot() {
     const message = botBuf.trim(); if (!message || botPending) return;
     const logged = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
@@ -211,7 +214,7 @@ function App({ port, onDone }) {
     else if (m.name === 'projects') { setView('projects'); setOpenProject(null); setPsel(0); }
     else if (m.name === 'usage') setView('usage');
     else if (m.name === 'activity') setView('activity');
-    else if (m.name === 'new') onDone({ action: 'new', cwd: process.cwd() });
+    else if (m.name === 'new') leave({ action: 'new', cwd: process.cwd() });
     else if (m.name === 'ask') setView('bot');
     else if (m.name === 'help') setMode('help');
     else if (m.name === 'quit') onDone({ action: 'quit' });
@@ -264,7 +267,7 @@ function App({ port, onDone }) {
         if (key.escape) { setOpenProject(null); setPsel(0); return; }
         if (key.upArrow || input === 'k') return setPsel(s => Math.max(0, s - 1));
         if (key.downArrow || input === 'j') return setPsel(s => Math.min(projSessions.length - 1, s + 1));
-        if (key.return && curProjSess) { const live = liveBySid.get(curProjSess.sessionId); if (live) return onDone({ action: 'attach', cs: live.cs, label: live.name || '' }); return onDone({ action: 'resume', resumeId: curProjSess.sessionId, cwd: curProjSess.cwd, label: curProjSess.title || '' }); }
+        if (key.return && curProjSess) { const live = liveBySid.get(curProjSess.sessionId); if (live) return leave({ action: 'attach', cs: live.cs, label: live.name || '' }); return leave({ action: 'resume', resumeId: curProjSess.sessionId, cwd: curProjSess.cwd, label: curProjSess.title || '' }); }
         return;
       }
       if (key.escape) { setView('status'); return; }
@@ -296,11 +299,11 @@ function App({ port, onDone }) {
     if (input === 'u') { setView('usage'); return; }
     if (input === 'l') { setView('activity'); return; }
     if (input === 'a') { setView('bot'); return; }
-    if (input === 'n') return onDone({ action: 'new', cwd: process.cwd() });
+    if (input === 'n') return leave({ action: 'new', cwd: process.cwd() });
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
     if (!cur) return;
     // A lost session has no live PTY to attach to — resume it from its transcript instead.
-    if (key.return) return onDone((cur.alive && cur.status !== 'lost')
+    if (key.return) return leave((cur.alive && cur.status !== 'lost')
       ? { action: 'attach', cs: cur.cs, label: cur.name || '' }
       : { action: 'resume', resumeId: cur.sessionId, cwd: cur.cwd, label: cur.name || '' });
     if (input === 'o') { post(`/api/sessions/${encodeURIComponent(cur.cs)}/open-terminal`); flash('opened in Terminal'); }
@@ -479,11 +482,11 @@ function App({ port, onDone }) {
   </${Box}>`;
 }
 
-function runApp(port) {
+function runApp(port, initial) {
   return new Promise(resolve => {
     let resolved = false;
     const done = r => { if (resolved) return; resolved = true; try { instance.unmount(); } catch {} resolve(r); };
-    const instance = render(html`<${App} port=${port} onDone=${done} />`, { exitOnCtrlC: false });
+    const instance = render(html`<${App} port=${port} onDone=${done} initial=${initial} />`, { exitOnCtrlC: false });
     instance.waitUntilExit().then(() => done(null)).catch(() => done(null));
   });
 }
@@ -507,14 +510,16 @@ export async function startTui() {
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { restore(); process.exit(0); });
 
   altEnter();
+  let initial;  // the view to restore after a session detaches (so Ctrl-] lands you where you were)
   try {
     for (;;) {
-      const r = await runApp(port);
-      if (r && r.action === 'attach') { altExit(); try { await attach(port, r.cs, { label: r.label || '' }); } catch {} altEnter(); continue; }
+      const r = await runApp(port, initial);
+      if (r && r.action === 'attach') { altExit(); try { await attach(port, r.cs, { label: r.label || '' }); } catch {} altEnter(); initial = r.from; continue; }
       if (r && (r.action === 'resume' || r.action === 'new')) {
         altExit();
         try { const res = await request(port, 'POST', '/api/sessions', { resumeId: r.resumeId || undefined, cwd: r.cwd, ...termSize() }); if (res.status === 200 && res.body?.cs) await attach(port, res.body.cs, { label: r.label || '' }); else if (res.body?.error) process.stderr.write('cockpit: ' + res.body.error + '\n'); } catch {}
         altEnter();
+        initial = r.from;
         continue;
       }
       break;
