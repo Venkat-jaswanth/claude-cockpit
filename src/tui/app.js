@@ -67,6 +67,14 @@ function runBot(seat, message, convId) {
 function meter(pct, width = 18) { const n = Math.round(Math.max(0, Math.min(100, pct || 0)) / 100 * width); return '█'.repeat(n) + '░'.repeat(width - n); }
 function burnText(s) { const b = s.burn; if (b && b.rising && b.etaMin != null && b.etaMin > 0 && b.etaMin <= 600) return `▲ ${b.perHour}%/h · ~${b.etaMin >= 60 ? Math.floor(b.etaMin / 60) + 'h' + (b.etaMin % 60) + 'm' : b.etaMin + 'm'} left`; return 'steady'; }
 const chunk = (a, n) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+// Keep a long list inside the terminal: show a window of up to `max` rows that follows the cursor.
+function windowed(items, cursor, max) {
+  const n = items.length, m = Math.max(1, max);
+  if (n <= m) return { slice: items, start: 0, above: 0, below: 0 };
+  const start = Math.max(0, Math.min(cursor - Math.floor(m / 2), n - m));
+  return { slice: items.slice(start, start + m), start, above: start, below: n - (start + m) };
+}
+const moreRow = (dir, n) => html`<${Box}><${Text} color=${ACCENT_DIM}>${'  ' + dir + ' ' + n + ' more'}</${Text}></${Box}>`;
 // Sparkline of a seat's recent 5-hour % (daemon exposes pctTrend), normalised to its own range.
 const SPK = '▁▂▃▄▅▆▇█';
 function spark(arr, n = 8) {
@@ -76,7 +84,7 @@ function spark(arr, n = 8) {
   const s = tail.map(v => SPK[Math.min(7, Math.floor((v - lo) / rng * 7.999))]).join('');
   return s.length < n ? SPK[0].repeat(n - s.length) + s : s;
 }
-// The big splash wordmark (ANSI Shadow), shown full-screen on launch.
+// The big wordmark (ANSI Shadow), shown at the top of the home page when the terminal has room.
 const HERO = [
   ' ██████╗ ██████╗  ██████╗██╗  ██╗██████╗ ██╗████████╗',
   '██╔════╝██╔═══██╗██╔════╝██║ ██╔╝██╔══██╗██║╚══██╔══╝',
@@ -90,26 +98,6 @@ function Logo({ label }) {
   return html`<${Box} marginBottom=${1}>
     <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} bold>${'cockpit'}</${Text}>
     <${Text} color="gray">${'   ' + (label || 'terminal control for many Claude Code seats')}</${Text}>
-  </${Box}>`;
-}
-
-function Splash({ online, running, best, connErr, rows }) {
-  return html`<${Box} flexDirection="column" alignItems="center" justifyContent="center" height=${Math.max(16, (rows || 24) - 1)}>
-    <${Box} flexDirection="column">
-      ${HERO.map((ln, i) => html`<${Text} key=${i} color=${ACCENT} bold>${ln}</${Text}>`)}
-    </${Box}>
-    <${Box} marginTop=${1}>
-      <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} color="white">a control room for Claude Code</${Text}>
-      <${Text} color=${ACCENT_DIM}>${'   ·   '}</${Text}><${Text} color="gray">runs on your machine</${Text}>
-    </${Box}>
-    <${Box} marginTop=${1}>
-      ${connErr
-        ? html`<${Text} color="red">can’t reach the daemon · start it with  cockpit daemon start</${Text}>`
-        : html`<${Text}><${Text} color="gray">seats </${Text}><${Text} color="white" bold>${online + ' '}</${Text}><${Text} color="green">online</${Text}><${Text} color="gray">${'     sessions '}</${Text}><${Text} color="white" bold>${running + ' '}</${Text}><${Text} color=${ACCENT}>running</${Text}>${best ? html`<${Text} color="gray">${'     best seat '}</${Text}><${Text} color=${ACCENT}>${'★ ' + best}</${Text}>` : null}</${Text}>`}
-    </${Box}>
-    <${Box} marginTop=${1}>
-      <${Text} color="gray">press </${Text}><${Text} color="white" bold>any key</${Text}><${Text} color="gray">${' to enter   ·   '}</${Text}><${Text} color=${ACCENT}>cockpit ›</${Text}><${Text} color=${ACCENT_DIM}>${'▋'}</${Text}>
-    </${Box}>
   </${Box}>`;
 }
 
@@ -144,8 +132,7 @@ function Row({ s, selected, seatCol }) {
   </${Box}>`;
 }
 
-function App({ port, onDone, splash }) {
-  const [started, setStarted] = useState(!splash);  // false shows the launch splash until a key is pressed
+function App({ port, onDone }) {
   const [st, setSt] = useState(null);
   const [lib, setLib] = useState(null);
   const [view, setView] = useState('status');     // status | projects
@@ -231,8 +218,6 @@ function App({ port, onDone, splash }) {
   }
 
   useInput((input, key) => {
-    // ---- launch splash: any key enters ----
-    if (!started) { if (key.ctrl && input === 'c') return onDone({ action: 'quit' }); setStarted(true); return; }
     // ---- text-entry modes ----
     if (mode === 'cmd') {
       if (key.return) return runCmd(buf);
@@ -314,7 +299,10 @@ function App({ port, onDone, splash }) {
     if (input === 'n') return onDone({ action: 'new', cwd: process.cwd() });
     if (input === '/') { setMode('filter'); setBuf(filter); return; }
     if (!cur) return;
-    if (key.return) return onDone({ action: 'attach', cs: cur.cs, label: cur.name || '' });
+    // A lost session has no live PTY to attach to — resume it from its transcript instead.
+    if (key.return) return onDone((cur.alive && cur.status !== 'lost')
+      ? { action: 'attach', cs: cur.cs, label: cur.name || '' }
+      : { action: 'resume', resumeId: cur.sessionId, cwd: cur.cwd, label: cur.name || '' });
     if (input === 'o') { post(`/api/sessions/${encodeURIComponent(cur.cs)}/open-terminal`); flash('opened in Terminal'); }
     else if (input === 'x') setMode('confirm');
     else if (input === 'r') { setMode('rename'); setBuf(cur.name || ''); }
@@ -325,8 +313,11 @@ function App({ port, onDone, splash }) {
   const rows = process.stdout.rows || 30;
   const twoCol = cols >= 92;
   const viewLabel = { status: 'mission control', usage: 'usage', projects: 'projects', activity: 'activity', bot: 'assistant' }[view] || '';
-
-  if (!started) return html`<${Splash} online=${_liveSeats.length} running=${st ? shownSessions(st).length : 0} best=${bestName} connErr=${connErr && !st} rows=${rows} />`;
+  // The home page leads with the big wordmark when the terminal is tall and wide enough for it.
+  const heroHome = view === 'status' && rows >= 30 && cols >= 54;
+  // How many list rows fit without overflowing the window (overflow corrupts Ink's next repaint).
+  const projMax = Math.max(4, rows - 12);
+  const statusMax = Math.max(3, rows - (heroHome ? 18 : 12));
 
   if (!st) return html`<${Box} padding=${1} flexDirection="column">
     <${Text} color=${connErr ? 'red' : ACCENT}>${connErr ? '⚠ can’t reach the cockpit daemon' : '❯ connecting to the cockpit daemon…'}</${Text}>
@@ -346,7 +337,11 @@ function App({ port, onDone, splash }) {
             : '↵ attach · n new · r rename · x stop · h hand off · p projects · u usage · l log · a ask · : cmd · ?';
 
   return html`<${Box} flexDirection="column" padding=${1}>
-    <${Logo} label=${viewLabel} />
+    ${heroHome
+      ? html`<${Box} flexDirection="column" marginBottom=${1}>
+          ${HERO.map((ln, i) => html`<${Text} key=${i} color=${ACCENT} bold>${ln}</${Text}>`)}
+        </${Box}>`
+      : html`<${Logo} label=${viewLabel} />`}
 
     ${view === 'status' ? html`<${Box} flexDirection=${twoCol ? 'row' : 'column'}>
       <${Box} flexDirection="column" borderStyle="round" borderColor=${ACCENT_DIM} paddingX=${1} width=${twoCol ? 30 : undefined} marginRight=${twoCol ? 1 : 0} marginBottom=${twoCol ? 0 : 1}>
@@ -361,39 +356,63 @@ function App({ port, onDone, splash }) {
       <${Box} flexDirection="column" borderStyle="round" borderColor=${ACCENT_DIM} paddingX=${1} flexGrow=${1}>
         <${Box}><${Text} color=${ACCENT} bold>${'status '}</${Text}><${Text} color="gray">${`· ${flat.length} session${flat.length === 1 ? '' : 's'} · ${groups.length} project${groups.length === 1 ? '' : 's'}`}</${Text}>${filter ? html`<${Text} color=${ACCENT}>${`   /${filter}`}</${Text}>` : null}</${Box}>
         ${flat.length === 0 ? html`<${Box} marginTop=${1}><${Text} color="gray">No running sessions. Press n to start one, or p for projects.</${Text}></${Box}>`
-          : groups.map(g => html`<${Box} key=${g.project} flexDirection="column" marginTop=${1}>
-              <${Text} bold>${g.project} <${Text} color="gray">${'· ' + g.items.length}</${Text}></${Text}>
-              ${g.items.map(s => { const sel = cur && s.cs === cur.cs;
-                return html`<${Box} key=${s.cs}>
-                  <${Text} color=${ACCENT}>${sel ? '› ' : '  '}</${Text}>
+          : (() => {
+              const win = windowed(flat, Math.min(sel, flat.length - 1), statusMax);
+              const out = []; let lastProj = null;
+              win.slice.forEach(s => {
+                const pj = projOf(s);
+                if (pj !== lastProj) { lastProj = pj; out.push(html`<${Box} key=${'h:' + pj} marginTop=${1}><${Text} bold>${pj} <${Text} color="gray">${'· ' + flat.filter(x => projOf(x) === pj).length}</${Text}></${Text}></${Box}>`); }
+                const on = cur && s.cs === cur.cs;
+                out.push(html`<${Box} key=${s.cs}>
+                  <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
                   <${Text} color=${dotColor(s)}>${'● '}</${Text}>
-                  <${Box} width=${18} marginRight=${1}><${Text} color=${sel ? 'white' : undefined} bold=${sel} wrap="truncate-end">${s.name || s.cs}</${Text}></${Box}>
+                  <${Box} width=${18} marginRight=${1}><${Text} color=${on ? 'white' : undefined} bold=${on} wrap="truncate-end">${s.name || s.cs}</${Text}></${Box}>
                   <${Box} width=${8} marginRight=${1}><${Text} color=${seatColOf(s.seat)} wrap="truncate-end">${s.seat || '?'}</${Text}></${Box}>
                   <${Box} width=${10}><${Text} color=${dotColor(s)}>${(s.status || '').replace('_', ' ')}</${Text}></${Box}>
                   <${Box} width=${5}><${Text} color="gray">${ago(s.lastActivity)}</${Text}></${Box}>
                   ${s.pendingHandoff ? html`<${Text} color="yellow">${'→ ' + s.pendingHandoff.to}</${Text}>` : null}
-                </${Box}>`; })}
-            </${Box}>`)}
+                </${Box}>`);
+              });
+              return html`<${Box} flexDirection="column">
+                ${win.above ? moreRow('↑', win.above) : null}
+                ${out}
+                ${win.below ? moreRow('↓', win.below) : null}
+              </${Box}>`;
+            })()}
       </${Box}>
     </${Box}>` : null}
 
     ${view === 'projects' ? html`<${Box} flexDirection="column">
       <${Box} marginBottom=${1}><${Text} bold>Projects</${Text}><${Text} color="gray">${openProject ? `   ${openProject}` : `   ${projList.length} project${projList.length === 1 ? '' : 's'}`}</${Text}></${Box}>
       ${!lib ? html`<${Text} color="gray">loading…</${Text}>`
-        : openProject ? (projSessions.length ? projSessions.map((r, i) => { const live = liveBySid.get(r.sessionId); const on = i === Math.min(psel, projSessions.length - 1);
-            return html`<${Box} key=${r.sessionId}>
-              <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
-              <${Box} width=${44}><${Text} color=${on ? 'white' : undefined} bold=${on} wrap="truncate-end">${r.title || r.sessionId.slice(0, 8)}</${Text}></${Box}>
-              <${Box} width=${10}>${live ? html`<${Text} color="green">running</${Text}>` : html`<${Text} color="gray">stored</${Text}>`}</${Box}>
-              <${Text} color="gray">${ago(r.lastAt)}</${Text}>
-            </${Box}>`; }) : html`<${Text} color="gray">no sessions in this project</${Text}>`)
-        : (projList.length ? projList.map((pr, i) => { const on = i === Math.min(psel, projList.length - 1);
-            return html`<${Box} key=${pr.name}>
-              <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
-              <${Box} width=${30}><${Text} color=${on ? 'white' : undefined} bold=${on} wrap="truncate-end">${pr.name}</${Text}></${Box}>
-              <${Box} width=${14}><${Text} color="gray">${pr.count + ' session' + (pr.count === 1 ? '' : 's')}</${Text}></${Box}>
-              <${Text} color="gray">${ago(pr.lastAt)}</${Text}>
-            </${Box}>`; }) : html`<${Text} color="gray">no projects yet</${Text}>`)}
+        : openProject ? (projSessions.length ? (() => {
+            const c = Math.min(psel, projSessions.length - 1), win = windowed(projSessions, c, projMax);
+            return html`<${Box} flexDirection="column">
+              ${win.above ? moreRow('↑', win.above) : null}
+              ${win.slice.map((r, i) => { const live = liveBySid.get(r.sessionId); const on = (win.start + i) === c;
+                return html`<${Box} key=${r.sessionId}>
+                  <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
+                  <${Box} width=${44}><${Text} color=${on ? 'white' : undefined} bold=${on} wrap="truncate-end">${r.title || r.sessionId.slice(0, 8)}</${Text}></${Box}>
+                  <${Box} width=${10}>${live ? html`<${Text} color="green">running</${Text}>` : html`<${Text} color="gray">stored</${Text}>`}</${Box}>
+                  <${Text} color="gray">${ago(r.lastAt)}</${Text}>
+                </${Box}>`; })}
+              ${win.below ? moreRow('↓', win.below) : null}
+            </${Box}>`;
+          })() : html`<${Text} color="gray">no sessions in this project</${Text}>`)
+        : (projList.length ? (() => {
+            const c = Math.min(psel, projList.length - 1), win = windowed(projList, c, projMax);
+            return html`<${Box} flexDirection="column">
+              ${win.above ? moreRow('↑', win.above) : null}
+              ${win.slice.map((pr, i) => { const on = (win.start + i) === c;
+                return html`<${Box} key=${pr.name}>
+                  <${Text} color=${ACCENT}>${on ? '› ' : '  '}</${Text}>
+                  <${Box} width=${30}><${Text} color=${on ? 'white' : undefined} bold=${on} wrap="truncate-end">${pr.name}</${Text}></${Box}>
+                  <${Box} width=${14}><${Text} color="gray">${pr.count + ' session' + (pr.count === 1 ? '' : 's')}</${Text}></${Box}>
+                  <${Text} color="gray">${ago(pr.lastAt)}</${Text}>
+                </${Box}>`; })}
+              ${win.below ? moreRow('↓', win.below) : null}
+            </${Box}>`;
+          })() : html`<${Text} color="gray">no projects yet</${Text}>`)}
     </${Box}>` : null}
 
     ${view === 'usage' ? html`<${Box} flexDirection="column">
@@ -460,11 +479,11 @@ function App({ port, onDone, splash }) {
   </${Box}>`;
 }
 
-function runApp(port, splash) {
+function runApp(port) {
   return new Promise(resolve => {
     let resolved = false;
     const done = r => { if (resolved) return; resolved = true; try { instance.unmount(); } catch {} resolve(r); };
-    const instance = render(html`<${App} port=${port} onDone=${done} splash=${splash} />`, { exitOnCtrlC: false });
+    const instance = render(html`<${App} port=${port} onDone=${done} />`, { exitOnCtrlC: false });
     instance.waitUntilExit().then(() => done(null)).catch(() => done(null));
   });
 }
@@ -488,11 +507,9 @@ export async function startTui() {
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { restore(); process.exit(0); });
 
   altEnter();
-  let firstLaunch = true;
   try {
     for (;;) {
-      const r = await runApp(port, firstLaunch);
-      firstLaunch = false;
+      const r = await runApp(port);
       if (r && r.action === 'attach') { altExit(); try { await attach(port, r.cs, { label: r.label || '' }); } catch {} altEnter(); continue; }
       if (r && (r.action === 'resume' || r.action === 'new')) {
         altExit();
