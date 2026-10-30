@@ -84,6 +84,10 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 
 ## Screenshots
 
+**In the terminal.** Run `cockpit` for a full-screen control room: every seat's budget and every live session in one view, each a keystroke from attaching.
+
+![Cockpit in the terminal](docs/tui-home.png)
+
 **Projects.** Every conversation grouped into collapsible folders, resumable on any seat.
 
 ![Projects view](docs/projects-light.png)
