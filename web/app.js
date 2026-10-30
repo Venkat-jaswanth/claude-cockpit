@@ -4,6 +4,7 @@ const VIEWS = {
   overview: ['Overview', 'What needs you, what\'s running, and today at a glance'],
   seats: ['Seats', 'One isolated Claude Code login per account'],
   sessions: ['Sessions', 'Running now, or waiting to be resumed'],
+  tasks: ['Tasks', 'Plan the work, launch it as a session, watch it run'],
   workspace: ['Workspace', 'Watch and drive several live sessions side by side'],
   library: ['Projects', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
   usage: ['Usage', 'Tokens booked to the seat that ran each turn; cost is Claude Code\'s own estimate'],
@@ -615,6 +616,7 @@ function renderSig() {
   if (view === 'usage') base.usage = usage && [usage.today?.total, usage.week?.total, usage.month?.total, usage.budgetMonthlyUSD, usage.all?.total, (usage.byDay || []).map(d => d.input + d.output + d.cacheRead + d.cacheWrite)];
   if (view === 'library') base.lib = { f: [libFilter, libGroup, libStar, libTag, showArchived], sel: selected.size, deep: deepResults ? deepResults.length : -1, dq: deepQuery, g: openGroups, rows: library.map(r => [r.sessionId, r.title, r.star, (r.tags || []).join(','), r.projectName, r.archived, Math.round(tot(r.tokens) / 1e5)]) };
   if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total), usage && (usage.today?.total?.cost || 0), usage && tot(usage.week?.total), usage && (usage.month?.total?.cost || 0), usage && usage.budgetMonthlyUSD];
+  if (view === 'tasks') base.tasks = (state?.tasks || []).map(t => [t.id, t.status, t.order, t.title, t.project, t.seat, t.archived, t.autoKick, t.worktree, t.live && [t.live.status, t.live.needsYou, t.live.plan && (t.live.plan.done + '/' + t.live.plan.total), t.live.cost && Math.round(t.live.cost.usd)]]);
   return JSON.stringify(base);
 }
 // Count a number up to its target on view entrance. Elements opt in with data-count (raw value)
@@ -631,6 +633,93 @@ function animateCounts(scope) {
     requestAnimationFrame(tick);
   });
 }
+// ---- Tasks board -------------------------------------------------------------
+const TB_COLS = [['backlog', 'Backlog'], ['ready', 'Ready'], ['inprogress', 'In progress'], ['done', 'Done']];
+function tbSeatOptions(cur) { return '<option value="">no seat</option>' + (state?.seats || []).filter(s => !s.disabled).map(s => `<option value="${esc(s.name)}"${cur === s.name ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
+function tbPlan(plan) {
+  if (!plan || !plan.items || !plan.items.length) return '';
+  const rows = plan.items.map(i => { const st = i.state === 'completed' ? 'done' : (i.state === 'in_progress' ? 'active' : ''); return `<div class="tb-todo ${st}"><span class="tb-box">${i.state === 'completed' ? '✓' : ''}</span><span class="tb-tx">${esc(i.text)}</span></div>`; }).join('');
+  return `<div class="tb-planbox"><div class="tb-plan-h"><span>Plan</span><span class="num">${plan.done}/${plan.total}</span></div>${rows}</div>`;
+}
+function tbCard(t) {
+  const live = t.live, running = live && live.alive, needs = live && live.needsYou;
+  const cost = live && live.cost ? `<span class="tb-cost">$<b>${(live.cost.usd || 0).toFixed(2)}</b> · ${fmtTok(live.cost.tokens)}</span>` : '';
+  let right = '';
+  if (t.status === 'done') right = '<span class="badge ok">✓ done</span>';
+  else if (needs) right = '<span class="badge warn">● needs you</span>';
+  else if (running) right = '<span class="badge accent">● running</span>';
+  const actionable = t.status !== 'done' && !running;
+  const launch = actionable ? `<button class="btn sm primary" data-tact="launch" data-id="${t.id}">▶ Launch</button>` : '';
+  const body = (live && live.plan) ? tbPlan(live.plan) : (t.desc ? `<div class="tb-desc">${esc(t.desc)}</div>` : '');
+  const seat = t.seat ? `<span class="tb-av">${esc(t.seat.slice(0, 2))}</span>${esc(t.seat)}` : '<span class="muted">no seat</span>';
+  return `<article class="tb-card" draggable="true" data-id="${t.id}" data-status="${t.status}">
+    <div class="tb-top"><span class="tb-tag">#${esc(t.project || '—')}</span></div>
+    <div class="tb-title">${esc(t.title || 'Untitled')}</div>
+    ${body}
+    <div class="tb-foot"><span class="tb-seat">${seat}</span>${cost ? '<span class="muted">·</span>' + cost : ''}<span class="tb-sp"></span>${right || launch}<button class="btn ghost sm tb-chev" data-tact="expand" data-id="${t.id}">⌄</button></div>
+    <div class="tb-detail" data-detail="${t.id}" hidden>
+      <label class="tb-row"><span>Folder</span><input class="inp sm" data-field="cwd" data-id="${t.id}" list="tbProjects" value="${esc(t.cwd || '')}" placeholder="/Users/you/project"></label>
+      <label class="tb-row"><span>Seat</span><select class="sel sm" data-field="seat" data-id="${t.id}">${tbSeatOptions(t.seat)}</select></label>
+      <textarea class="inp sm tb-ta" data-field="desc" data-id="${t.id}" placeholder="Description — becomes the opening prompt when auto-start is on">${esc(t.desc || '')}</textarea>
+      <label class="tb-check"><input type="checkbox" data-field="autoKick" data-id="${t.id}" ${t.autoKick !== false ? 'checked' : ''}> Auto-start from description</label>
+      <label class="tb-check"><input type="checkbox" data-field="worktree" data-id="${t.id}" ${t.worktree ? 'checked' : ''}> Run in an isolated worktree</label>
+      <div class="tb-detail-actions">
+        ${running ? `<button class="btn sm" data-tact="attach" data-cs="${esc(live.cs)}">Attach</button><button class="btn sm danger" data-tact="stop" data-cs="${esc(live.cs)}">Stop</button>` : ''}
+        ${t.status !== 'done' ? `<button class="btn sm" data-tact="done" data-id="${t.id}">Mark done</button>` : `<button class="btn sm" data-tact="reopen" data-id="${t.id}">Re-open</button>`}
+        <button class="btn sm ghost danger" data-tact="delete" data-id="${t.id}">Delete</button>
+      </div>
+    </div>
+  </article>`;
+}
+function vTasks() {
+  const tasks = state?.tasks || [];
+  const cols = TB_COLS.map(([key, label]) => {
+    const items = tasks.filter(t => t.status === key).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const cards = items.map(tbCard).join('');
+    const add = key === 'backlog' ? `<form class="tb-add" id="tbAdd"><input class="inp sm" name="ttitle" placeholder="+ Add a task" autocomplete="off"><input class="inp sm" name="tcwd" list="tbProjects" placeholder="folder (needed to launch)" autocomplete="off"></form>` : '';
+    return `<div class="tb-col" data-status="${key}"><div class="tb-colhead"><span class="tb-colname">${label}</span><span class="tb-colcount num">${items.length}</span></div><div class="tb-cards" data-drop="${key}">${cards || '<div class="tb-empty"></div>'}${add}</div></div>`;
+  }).join('');
+  return `<datalist id="tbProjects">${projects.map(p => `<option value="${esc(p.cwd)}">`).join('')}</datalist><div class="tb-board">${cols}</div>`;
+}
+function wireTasks(el) {
+  el.querySelectorAll('[data-tact]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();
+    const act = b.dataset.tact, id = b.dataset.id, cs = b.dataset.cs;
+    if (act === 'expand') { const d = el.querySelector(`[data-detail="${id}"]`); if (d) d.hidden = !d.hidden; return; }
+    try {
+      if (act === 'launch') { await post(`/api/tasks/${id}/launch`); toast('Launching — Claude is starting on it'); }
+      else if (act === 'attach') { await openSession(cs, 'browser'); }
+      else if (act === 'stop') { await post(`/api/sessions/${cs}/stop`); toast('Session stopped'); }
+      else if (act === 'done') { await post(`/api/tasks/${id}`, { status: 'done' }); }
+      else if (act === 'reopen') { await post(`/api/tasks/${id}`, { status: 'ready' }); }
+      else if (act === 'delete') { if (confirm('Delete this task? This cannot be undone.')) await post(`/api/tasks/${id}/delete`); }
+    } catch {}
+    setTimeout(load, 250);
+  });
+  el.querySelectorAll('[data-field]').forEach(f => {
+    const commit = async () => { const body = {}; body[f.dataset.field] = f.type === 'checkbox' ? f.checked : f.value; try { await post(`/api/tasks/${f.dataset.id}`, body); } catch {} };
+    if (f.type === 'checkbox' || f.tagName === 'SELECT') f.onchange = commit; else f.onchange = commit;
+  });
+  const add = el.querySelector('#tbAdd');
+  if (add) add.onsubmit = async ev => {
+    ev.preventDefault();
+    const title = add.querySelector('[name=ttitle]').value.trim(); if (!title) return;
+    const cwd = add.querySelector('[name=tcwd]').value.trim() || null;
+    const project = cwd ? cwd.replace(/\/+$/, '').split('/').pop() : null;
+    try { await post('/api/tasks', { title, cwd, project }); } catch {}
+    setTimeout(load, 200);
+  };
+  let dragId = null;
+  el.querySelectorAll('.tb-card').forEach(c => {
+    c.addEventListener('dragstart', e => { dragId = c.dataset.id; c.classList.add('tb-dragging'); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.id); } catch {} });
+    c.addEventListener('dragend', () => { dragId = null; c.classList.remove('tb-dragging'); el.querySelectorAll('.tb-cards').forEach(z => z.classList.remove('tb-over')); });
+  });
+  el.querySelectorAll('.tb-cards').forEach(z => {
+    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('tb-over'); });
+    z.addEventListener('dragleave', () => z.classList.remove('tb-over'));
+    z.addEventListener('drop', async e => { e.preventDefault(); z.classList.remove('tb-over'); const id = dragId || (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return null; } })(); if (!id) return; try { await post(`/api/tasks/${id}`, { status: z.dataset.drop, order: Date.now() }); } catch {} setTimeout(load, 150); });
+  });
+}
 function render() {
   if (!state) return;
   const [title, sub] = VIEWS[view] || VIEWS.overview;
@@ -638,6 +727,7 @@ function render() {
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === view));
   const running = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed).length;
   $('#cSeats').textContent = state.seats.length || ''; $('#cSessions').textContent = running || ''; $('#cLibrary').textContent = library.length || '';
+  { const tEl = $('#cTasks'); if (tEl) tEl.textContent = (state.tasks || []).filter(t => t.status !== 'done').length || ''; }
   const attnN = state.seats.length ? attnItems().length : 0; const cAttn = $('#cAttn'); if (cAttn) { cAttn.textContent = attnN || ''; cAttn.className = 'count' + (attnN ? ' attn' : ''); }
   $('#brandSub').textContent = `${state.seats.length} seat${state.seats.length === 1 ? '' : 's'} · ${running} running`;
   $('#daemonLine').textContent = `daemon up ${Math.round(state.uptime / 60000)} min · v${state.version}`;
@@ -653,7 +743,7 @@ function render() {
     else if (wsCtl.built) wsCtl.update();
     return;
   }
-  const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
+  const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, tasks: vTasks, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
   const el = $('#content');
   const focus = document.activeElement?.id;
   el.innerHTML = fn();
@@ -661,6 +751,7 @@ function render() {
   if (viewChanged && !/\bnomotion\b/.test(location.search)) { el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter'); }
   if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   wire(el);
+  if (view === 'tasks') wireTasks(el);
   if (viewChanged) { animateCounts(el); animateEnter(el); }
 }
 // One-time entrance draw for the Today timeline bars, on navigation only.

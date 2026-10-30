@@ -46,6 +46,10 @@ const persisted = readJson(STATE_FILE, {}) || {};
 const sessions = new Map(Object.entries(persisted.sessions || {}));
 const events = Array.isArray(persisted.events) ? persisted.events : [];
 const jobs = Array.isArray(persisted.jobs) ? persisted.jobs : [];
+const tasks = Array.isArray(persisted.tasks) ? persisted.tasks : [];
+const findTask = id => tasks.find(t => t.id === id) || null;
+const TODOS_DIR = path.join(BASE_CLAUDE_DIR, 'todos'); // Claude Code's TodoWrite plans (a shared entry)
+const planCache = new Map();
 const notified = new Map();
 let usageCache = {};
 const LEDGER_FILE = path.join(HOME, 'ledger.json');
@@ -218,7 +222,7 @@ function schedulePersist() {
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs }); } catch (e) { log('warn', `persist failed: ${e.message}`); }
+    try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks }); } catch (e) { log('warn', `persist failed: ${e.message}`); }
   }, 300);
 }
 function addEvent(type, msg, data = {}) {
@@ -464,7 +468,37 @@ function handleHook(ev, q, body) {
   schedulePersist();
 }
 
-function sessionView(s) { return { ...s, viewers: manager.viewerCount(s.cs) }; }
+// Claude Code writes its TodoWrite plan to ~/.claude/todos/<sessionId>*.json; surface it live.
+function readPlan(sessionId) {
+  if (!sessionId) return null;
+  let file;
+  try {
+    const names = fs.readdirSync(TODOS_DIR).filter(n => n.startsWith(sessionId) && n.endsWith('.json'));
+    if (!names.length) return null;
+    file = names.find(n => n.includes(`-agent-${sessionId}`)) || names.sort((a, b) => fs.statSync(path.join(TODOS_DIR, b)).mtimeMs - fs.statSync(path.join(TODOS_DIR, a)).mtimeMs)[0];
+    file = path.join(TODOS_DIR, file);
+    const mtime = fs.statSync(file).mtimeMs;
+    const hit = planCache.get(file);
+    if (hit && hit.mtime === mtime) return hit.plan;
+    const list = readJson(file, null);
+    const items = Array.isArray(list) ? list.map(x => ({ text: x.content, state: x.status })) : []; // state: pending|in_progress|completed
+    const plan = items.length ? { items, done: items.filter(i => i.state === 'completed').length, total: items.length } : null;
+    planCache.set(file, { mtime, plan });
+    return plan;
+  } catch { return null; }
+}
+function sessionView(s) { return { ...s, viewers: manager.viewerCount(s.cs), plan: (s.kind === 'claude' && s.status !== 'ended') ? readPlan(s.sessionId) : null }; }
+// A task joined with its live session: cost (already tracked) + plan + status.
+function taskView(t) {
+  const s = t.sessionCs ? sessions.get(t.sessionCs) : null;
+  const live = s ? {
+    cs: s.cs, status: s.status, alive: s.alive, seat: s.seat,
+    cost: s.tokens ? { usd: s.tokens.cost, tokens: totalTokens(s.tokens) } : null,
+    plan: (s.kind === 'claude' && s.status !== 'ended') ? readPlan(s.sessionId) : null,
+    needsYou: s.alive && s.status === 'idle',
+  } : null;
+  return { ...t, live };
+}
 function state() {
   refreshUsage();
   return {
@@ -474,6 +508,7 @@ function state() {
     probing: [...probes.values()].some(r => r.running),
     sessions: [...sessions.values()].filter(x => x.kind !== 'probe').map(sessionView).sort((a, b) => b.lastActivity - a.lastActivity),
     jobs: jobs.filter(j => j.status === 'queued' || (j.startedAt || j.createdAt) > Date.now() - 6 * 3600e3).sort((a, b) => a.at - b.at),
+    tasks: tasks.filter(t => !t.archived).map(taskView),
     events: events.slice(-150).reverse(),
   };
 }
@@ -583,6 +618,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/s\/([^/]+)$/))) return file(res, path.join(WEB_DIR, 'terminal.html'), 'text/html');
       if (p === '/api/health') return json(res, { ok: true, version: VERSION, pid: process.pid, uptime: Date.now() - startedAt, port: PORT });
       if (p === '/api/state') return json(res, state());
+      if (p === '/api/tasks') return json(res, { tasks: tasks.filter(t => !t.archived).map(taskView) });
       if (p === '/api/library') return json(res, { sessions: scanLibrary(), tags: allTags(), now: Date.now() });
       if (p === '/api/projects') return json(res, { projects: recentProjects() });
       if (p === '/api/usage') return json(res, usageSummary());
@@ -596,6 +632,32 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/sessions') return json(res, startClaudeSession(body));
       if (p === '/api/schedule') { if (!body.cwd || !fs.existsSync(path.resolve(body.cwd))) return json(res, { error: 'folder does not exist' }, 400); return json(res, { ok: true, job: addJob({ ...body, cwd: path.resolve(body.cwd) }) }); }
       if ((m = p.match(/^\/api\/schedule\/([^/]+)\/cancel$/))) { const job = jobs.find(j => j.id === m[1]); if (!job) return json(res, { error: 'no such job' }, 404); if (job.status === 'queued') { job.status = 'cancelled'; addEvent('schedule', `cancelled "${job.name || ''}"`); schedulePersist(); } return json(res, { ok: true }); }
+      if (p === '/api/tasks') {
+        const t = { id: crypto.randomBytes(4).toString('hex'), title: String(body.title || '').slice(0, 200), desc: String(body.desc || ''), cwd: body.cwd ? path.resolve(body.cwd) : null, project: body.project || null, seat: body.seat || null, status: ['backlog', 'ready', 'inprogress', 'done'].includes(body.status) ? body.status : 'backlog', order: Number(body.order) || Date.now(), autoKick: body.autoKick !== false, worktree: !!body.worktree, branch: body.branch || null, sessionCs: null, sessionId: null, archived: false, createdAt: Date.now(), updatedAt: Date.now() };
+        tasks.push(t); addEvent('task', `added "${t.title || 'untitled'}"`); schedulePersist();
+        return json(res, { ok: true, task: taskView(t) });
+      }
+      if ((m = p.match(/^\/api\/tasks\/([^/]+)\/launch$/))) {
+        const t = findTask(m[1]); if (!t) return json(res, { error: 'no such task' }, 404);
+        if (!t.cwd || !fs.existsSync(t.cwd)) return json(res, { error: 'task has no project folder' }, 400);
+        const r = startClaudeSession({ cwd: t.cwd, seat: t.seat || body.seat || null, name: t.title, initialPrompt: t.autoKick ? (t.desc || t.title) : undefined, worktree: !!t.worktree, branch: t.branch || null });
+        t.sessionCs = r.cs; t.sessionId = r.sessionId; t.status = 'inprogress'; t.endedNudged = false; t.updatedAt = Date.now();
+        addEvent('task', `launched "${t.title}" on ${r.seat.name}`, { cs: r.cs }); schedulePersist();
+        return json(res, { ok: true, task: taskView(t) });
+      }
+      if ((m = p.match(/^\/api\/tasks\/([^/]+)\/delete$/))) {
+        const i = tasks.findIndex(t => t.id === m[1]); if (i < 0) return json(res, { error: 'no such task' }, 404);
+        const [t] = tasks.splice(i, 1); addEvent('task', `deleted "${t.title || ''}"`); schedulePersist();
+        return json(res, { ok: true });
+      }
+      if ((m = p.match(/^\/api\/tasks\/([^/]+)$/))) {
+        const t = findTask(m[1]); if (!t) return json(res, { error: 'no such task' }, 404);
+        for (const k of ['title', 'desc', 'status', 'order', 'seat', 'project', 'autoKick', 'worktree', 'branch', 'archived']) if (k in body) t[k] = body[k];
+        if ('cwd' in body) t.cwd = body.cwd ? path.resolve(body.cwd) : null;
+        t.completedAt = t.status === 'done' ? (t.completedAt || Date.now()) : null;
+        t.updatedAt = Date.now(); schedulePersist();
+        return json(res, { ok: true, task: taskView(t) });
+      }
       if ((m = p.match(/^\/api\/marks\/([^/]+)$/))) { const mk = setMark(decodeURIComponent(m[1]), body || {}); return json(res, { ok: true, mark: mk }); }
       if (p === '/api/marks-batch') { const ids = Array.isArray(body.sessionIds) ? body.sessionIds : []; for (const id of ids) setMark(String(id), body.patch || {}); addEvent('marks', `updated ${ids.length} session${ids.length === 1 ? '' : 's'}`); return json(res, { ok: true, count: ids.length }); }
       if (p === '/api/library/delete') {
@@ -754,6 +816,7 @@ function poll() {
     refreshGit();
     for (const s of sessions.values()) { if (s.alive && s.transcriptPath) accountTokens(s); if (s.managed && s.status === 'idle') evaluate(s, { trigger: 'poll' }); }
     processJobs();
+    for (const t of tasks) if (t.status === 'inprogress' && t.sessionCs && !t.endedNudged) { const s = sessions.get(t.sessionCs); if (s && !s.alive && s.status === 'ended') { t.endedNudged = true; addEvent('task', `"${t.title}" session finished; ready to mark done`); schedulePersist(); } }
     for (const [name, u] of Object.entries(usageCache)) {
       const pct = u?.fiveHour?.pct;
       if (pct != null && pct >= cfg.handoff.thresholdPct) { const key = `seat:${name}:${u.fiveHour.resetsAt}`; if (!notified.has(key)) { notified.set(key, Date.now()); addEvent('threshold', `seat ${name} is at ${pct}% of its 5-hour window`); } }
@@ -784,7 +847,7 @@ function shutdown() {
   clearTimeout(pollTimer);
   // Kill the PTYs we own so no `claude` process is orphaned to keep writing a transcript.
   for (const s of sessions.values()) { if (s.alive && s.kind === 'claude' && s.managed) { try { manager.killNow(s); } catch {} s.status = 'lost'; } else if (s.alive) s.status = 'lost'; }
-  try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs }); } catch {}
+  try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks }); } catch {}
   try { writeJson(LEDGER_FILE, ledger); } catch {}
   try { if (fs.existsSync(PID_FILE) && Number(fs.readFileSync(PID_FILE, 'utf8')) === process.pid) fs.unlinkSync(PID_FILE); } catch {}
   server.close();
