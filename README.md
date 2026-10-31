@@ -22,6 +22,13 @@
   <img alt="Claude Cockpit dashboard" src="docs/overview-light.png" width="100%">
 </picture>
 
+<br>
+<br>
+
+<img alt="Dragging a task across the board into a live session" src="docs/demo.gif" width="100%">
+
+<sub>Plan a task, drag it across the board, launch it as a live session.</sub>
+
 </div>
 
 ## Why
@@ -55,11 +62,14 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 | **Scheduled runs** | Queue a session to start now, in a few hours, or at a seat's next reset, with an initial task waiting for it. |
 | **Command palette** | Press `⌘K` to jump to any view, seat, session or action. |
 
-### Organize everything
+### Plan &amp; organize
 
 | | |
 |---|---|
-| **Session library** | Every stored conversation, grouped by git repo. Star, tag, note, archive and resume any of them on any seat. |
+| **Projects** | Group work into a named project with an optional folder and tags. Each one gathers its open tasks, live sessions and past conversations in one place. Folders you have already worked in show up automatically, one click from becoming a project. |
+| **Task board** | A drag-and-drop board with spring-physics reordering: Backlog, Ready, In progress, Done. Plan a task, link it to a project, and launch it as a live session in one click. |
+| **Sessions drawer** | Click a project to slide out its live sessions and its full history, each one openable or resumable on any seat. |
+| **Library** | Every stored conversation, grouped by folder or repo. Star, tag, note, filter by project, archive and resume any of them on any seat. |
 | **Full-text search** | Grep across every transcript on the machine and get readable snippets back. |
 | **Bulk actions** | Select a batch of conversations and star, tag, move, archive or delete them in one go. |
 
@@ -88,9 +98,32 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 
 ![Cockpit in the terminal](docs/tui-home.png)
 
-**Projects.** Every conversation grouped into collapsible folders, resumable on any seat.
+**Projects.** Your work grouped into projects: open tasks, live sessions and history in one place. Folders you have already used show up automatically, one click from becoming a project.
 
-![Projects view](docs/projects-light.png)
+![Projects hub](docs/projects-light.png)
+
+**Plan the work.** A drag-and-drop task board. Link a task to a project, then launch it as a live session with one click.
+
+![Task board](docs/tasks-light.png)
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Sessions, revealed.** Click a project to slide out its live sessions and past conversations, resumable on any seat.
+
+![Sessions drawer](docs/projects-drawer-dark.png)
+
+</td>
+<td width="50%" valign="top">
+
+**Library.** Every conversation, grouped by folder. Star, tag, filter by project, resume on any seat.
+
+![Library](docs/library-light.png)
+
+</td>
+</tr>
+</table>
 
 <table>
 <tr>
