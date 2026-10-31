@@ -640,22 +640,17 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .tb-card:hover { border-color: var(--line-strong); }
 .tb-card.tb-dragging { cursor: grabbing; border-color: var(--line-strong); box-shadow: 0 22px 54px rgba(0, 0, 0, .28); }
 .tb-ph { border: 1.5px dashed var(--line-strong); border-radius: var(--r-s); background: color-mix(in srgb, var(--accent) 5%, transparent); }
-/* Done column: collapsible, so finished work stays tucked away until you want it */
-.tb-done-head { display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; color: inherit; text-align: left; background: none; border: 0; cursor: pointer; padding: 2px 6px 10px; border-radius: var(--r-s); transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease; }
-.tb-done-head:hover { opacity: .8; }
-.tb-done-head:active { transform: scale(.98); }
-.tb-done-check { color: var(--ok); flex: none; opacity: .9; }
-.tb-done-chev { margin-left: auto; color: var(--faint); flex: none; transition: transform 240ms var(--ease-out); }
-.tbc-done:not(.collapsed) .tb-done-chev { transform: rotate(90deg); }
-.tbc-done.collapsed { flex: 0 0 auto; min-width: 0; padding: 0; background: transparent; border-color: transparent; }
-.tbc-done.collapsed .tb-cards { display: none; }
-.tbc-done.collapsed .tb-done-head { padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--text) 3%, transparent); white-space: nowrap; }
-.tbc-done.collapsed .tb-done-head:hover { opacity: 1; border-color: var(--line-strong); }
-.tbc-done.collapsed .tb-colname { color: var(--muted); }
-.tbc-done.collapsed.tbc-aim .tb-done-head { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); opacity: 1; }
-:root[data-motion="reduced"] .tb-done-head:active { transform: none; }
-.tb-top { margin-bottom: 7px; }
-.tb-tag { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 3px 6px; }
+/* Done: "Show N more" dropdown under the recent cards */
+.tb-done-more { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 9px; padding: 8px; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: color-mix(in srgb, var(--text) 3%, transparent); border: 1px solid var(--line); border-radius: var(--r-s); cursor: pointer; transition: color 140ms ease, background 140ms ease, border-color 140ms ease, transform 100ms var(--ease-out); }
+.tb-done-more:hover { color: var(--text); border-color: var(--line-strong); background: color-mix(in srgb, var(--text) 6%, transparent); }
+.tb-done-more:active { transform: scale(.98); }
+.tb-more-chev { flex: none; opacity: .75; transition: transform 260ms var(--ease-out); }
+.tb-done-more[aria-expanded="true"] .tb-more-chev { transform: rotate(180deg); }
+:root[data-motion="reduced"] .tb-done-more:active { transform: none; }
+:root[data-motion="reduced"] .tb-more-chev { transition: none; }
+.tb-top { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.tb-top .badge { margin-left: auto; flex: none; }
+.tb-tag { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 3px 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-title { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; }
 .tb-desc { font-size: 12px; color: var(--muted); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tb-planbox { margin-top: 9px; border-top: 1px solid var(--line); padding-top: 8px; }
@@ -668,6 +663,8 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .tb-todo.active .tb-box::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.3s infinite; }
 .tb-todo.active .tb-tx { font-weight: 500; }
 .tb-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.tb-meta { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
+.tb-foot > .btn, .tb-foot .tb-chev { flex: none; }
 .tb-seat { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 .tb-av { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-weight: 600; color: var(--accent-ink); background: var(--accent); flex: none; }
 .tb-cost { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }

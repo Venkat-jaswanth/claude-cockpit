@@ -650,6 +650,7 @@ function animateCounts(scope) {
 }
 // ---- Tasks board -------------------------------------------------------------
 const TB_COLS = [['backlog', 'Backlog'], ['ready', 'Ready'], ['inprogress', 'In progress'], ['done', 'Done']];
+const TB_DONE_PREVIEW = 3;   // Done shows this many most-recent cards; the rest hide behind a dropdown
 function tbSeatOptions(cur) { return '<option value="">no seat</option>' + (state?.seats || []).filter(s => !s.disabled).map(s => `<option value="${esc(s.name)}"${cur === s.name ? ' selected' : ''}>${esc(s.name)}</option>`).join(''); }
 function tbPlan(plan) {
   if (!plan || !plan.items || !plan.items.length) return '';
@@ -704,10 +705,10 @@ function tbCard(t) {
   const body = (live && live.plan) ? tbPlan(live.plan) : (t.desc ? `<div class="tb-desc">${esc(t.desc)}</div>` : '');
   const seat = t.seat ? `<span class="tb-av">${esc(t.seat.slice(0, 2))}</span>${esc(t.seat)}` : '<span class="muted">no seat</span>';
   return `<article class="tb-card" data-id="${t.id}" data-status="${t.status}">
-    <div class="tb-top"><span class="tb-tag">#${esc(t.project || '—')}</span></div>
+    <div class="tb-top"><span class="tb-tag">#${esc(t.project || '—')}</span>${right}</div>
     <div class="tb-title">${esc(t.title || 'Untitled')}</div>
     ${body}
-    <div class="tb-foot"><span class="tb-seat">${seat}</span>${cost ? '<span class="muted">·</span>' + cost : ''}<span class="tb-sp"></span>${right || launch}<button class="btn ghost sm tb-chev" data-tact="expand" data-id="${t.id}">⌄</button></div>
+    <div class="tb-foot"><div class="tb-meta"><span class="tb-seat">${seat}</span>${cost ? '<span class="muted">·</span>' + cost : ''}</div>${launch}<button class="btn ghost sm tb-chev" data-tact="expand" data-id="${t.id}">⌄</button></div>
     <div class="tb-detail" data-detail="${t.id}" hidden>
       <label class="tb-row"><span>Folder</span><input class="inp sm" data-field="cwd" data-id="${t.id}" list="tbProjects" value="${esc(t.cwd || '')}" placeholder="/Users/you/project"></label>
       <label class="tb-row"><span>Seat</span><select class="sel sm" data-field="seat" data-id="${t.id}">${tbSeatOptions(t.seat)}</select></label>
@@ -728,15 +729,18 @@ function vTasks() {
   if (taskProjectFilter && !fp) taskProjectFilter = '';            // project was deleted; drop the stale filter
   if (fp) tasks = tasks.filter(t => t.projectId === fp);
   const composerDefault = fp || tbComposerProject;
-  const chevSvg = '<svg class="tb-done-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
-  const checkSvg = '<svg class="tb-done-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
   const cols = TB_COLS.map(([key, label]) => {
     const items = tasks.filter(t => t.status === key).sort((a, b) => (a.order || 0) - (b.order || 0));
     const cards = items.map(tbCard).join('');
     if (key === 'done') {
-      // Collapsible: finished tasks hide behind a pill that shows the count; click to reveal.
-      const head = `<button type="button" class="tb-colhead tb-done-head" data-tb-done aria-expanded="${tbDoneOpen}" title="${tbDoneOpen ? 'Hide done tasks' : 'Show done tasks'}">${checkSvg}<span class="tb-colname">Done</span><span class="tb-colcount num">${items.length}</span>${chevSvg}</button>`;
-      return `<div class="tb-col tbc-done${tbDoneOpen ? '' : ' collapsed'}" data-status="${key}">${head}<div class="tb-cards" data-drop="${key}">${cards || '<div class="tb-empty"></div>'}</div></div>`;
+      // Show the most recently finished few; the rest tuck away behind a "Show N more" dropdown.
+      const recent = items.slice().sort((a, b) => (b.completedAt || b.updatedAt || b.order || 0) - (a.completedAt || a.updatedAt || a.order || 0));
+      const shown = tbDoneOpen ? recent : recent.slice(0, TB_DONE_PREVIEW);
+      const hidden = recent.length - shown.length;
+      const dcards = shown.map(tbCard).join('') || '<div class="tb-empty"></div>';
+      const chev = '<svg class="tb-more-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+      const more = recent.length > TB_DONE_PREVIEW ? `<button type="button" class="tb-done-more" data-tb-done aria-expanded="${tbDoneOpen}">${tbDoneOpen ? 'Show less' : `Show ${hidden} more`}${chev}</button>` : '';
+      return `<div class="tb-col tbc-done" data-status="${key}"><div class="tb-colhead"><span class="tb-colname">${label}</span><span class="tb-colcount num">${items.length}</span></div><div class="tb-cards" data-drop="${key}">${dcards}</div>${more}</div>`;
     }
     const folderSvg = '<svg class="tb-add-ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
     const add = key === 'backlog' ? `<form class="tb-add" id="tbAdd" autocomplete="off">
@@ -756,16 +760,15 @@ function vTasks() {
 function wireTasks(el) {
   const byId = id => (state?.tasks || []).find(t => t.id === id) || null;
   const clr = el.querySelector('#tbClearFilter'); if (clr) clr.onclick = () => { taskProjectFilter = ''; lastSig = null; render(); };
-  // Collapse / reveal the Done column in place (no full rebuild, so it works mid-compose too).
+  // Reveal / hide the older done cards. Rebuilds the board, then staggers the newly shown cards in.
   const doneToggle = el.querySelector('[data-tb-done]');
   if (doneToggle) doneToggle.onclick = () => {
-    tbDoneOpen = !tbDoneOpen; saveTbDone();
-    const col = el.querySelector('.tbc-done'); if (!col) return;
-    col.classList.toggle('collapsed', !tbDoneOpen);
-    doneToggle.setAttribute('aria-expanded', String(tbDoneOpen));
-    doneToggle.title = tbDoneOpen ? 'Hide done tasks' : 'Show done tasks';
-    if (tbDoneOpen && !tbReduce()) col.querySelectorAll('.tb-card').forEach((n, i) => {
-      try { n.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 320, delay: i * 45, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }); } catch {}
+    const opening = !tbDoneOpen;
+    tbDoneOpen = opening; saveTbDone(); lastSig = null; render();
+    if (opening && !tbReduce()) requestAnimationFrame(() => {
+      [...document.querySelectorAll('#content .tbc-done .tb-card')].slice(TB_DONE_PREVIEW).forEach((n, i) => {
+        try { n.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 340, delay: i * 50, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }); } catch {}
+      });
     });
   };
   const prevSib = n => { let p = n.previousElementSibling; while (p && !p.classList.contains('tb-card')) p = p.previousElementSibling; return p; };
@@ -911,9 +914,6 @@ function wireTasks(el) {
     drag.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (drag.hist.length > 6) drag.hist.shift();
     const tgt = computeTarget(e.clientX, e.clientY);
     if (tgt && !(drag.ph.parentNode === tgt.list && phBefore(drag.ph) === tgt.before)) reflowTo(tgt.list, tgt.before);
-    // Light up the collapsed Done pill when it's the drop target, since it has no visible card list.
-    const donePill = el.querySelector('.tbc-done.collapsed');
-    if (donePill) donePill.classList.toggle('tbc-aim', !!(tgt && tgt.list && tgt.list.closest('.tb-col') === donePill));
   };
   const onUp = () => {
     window.removeEventListener('pointermove', onMove);
@@ -921,26 +921,6 @@ function wireTasks(el) {
     if (!drag.moved) { const id = drag.t; drag = null; return toggleDetail(id); }
     const card = drag.el, ph = drag.ph, h = drag.hist, id = card.dataset.id; let vx = 0, vy = 0;
     if (h.length >= 2) { const a = h[h.length - 1], b = h[0], dt = Math.max(16, a.t - b.t); vx = (a.x - b.x) / dt * 1000; vy = (a.y - b.y) / dt * 1000; }
-    // Dropped onto the collapsed Done pill: file it away with a fade toward the pill rather than
-    // dropping into a hidden list (whose slot measures 0,0, which would fling the card to the corner).
-    const destCol = ph && ph.parentNode ? ph.parentNode.closest('.tb-col') : null;
-    if (destCol && destCol.classList.contains('tbc-done') && destCol.classList.contains('collapsed')) {
-      const pe = prevSib(ph), ne = nextSib(ph);
-      const ppo = pe && byId(pe.dataset.id) ? byId(pe.dataset.id).order : null, pno = ne && byId(ne.dataset.id) ? byId(ne.dataset.id).order : null;
-      const ord = (ppo != null && pno != null) ? (ppo + pno) / 2 : (ppo != null ? ppo + 1 : (pno != null ? pno - 1 : Date.now()));
-      ph.remove(); destCol.classList.remove('tbc-aim');
-      const head = destCol.querySelector('.tb-done-head');
-      const finish = async () => { card.remove(); try { await post(`/api/tasks/${id}`, { status: 'done', order: ord }); } catch {} dirtyForms.delete('tasks'); load(); };
-      if (tbReduce() || !head) finish();
-      else {
-        const hr = head.getBoundingClientRect(), cr = card.getBoundingClientRect();
-        const tx = (hr.left + hr.width / 2) - (cr.left + cr.width / 2), ty = (hr.top + hr.height / 2) - (cr.top + cr.height / 2);
-        let a = null; try { a = card.animate([{ transform: 'scale(1.03)', opacity: 1 }, { transform: `translate(${tx}px,${ty}px) scale(.42)`, opacity: 0 }], { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)' }); } catch {}
-        if (a) a.onfinish = () => { try { head.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.14)' }, { transform: 'scale(1)' }], { duration: 320, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} finish(); };
-        else finish();
-      }
-      drag = null; return;
-    }
     card.style.transform = ''; const relRect = card.getBoundingClientRect();
     card.classList.remove('tb-dragging'); card.removeAttribute('style');
     if (ph && ph.parentNode) ph.replaceWith(card);
