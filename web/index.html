@@ -16,8 +16,9 @@
       <a href="#/seats" data-view="seats"><span class="ico">◫</span>Seats<span class="count" id="cSeats"></span></a>
       <a href="#/sessions" data-view="sessions"><span class="ico">▶</span>Sessions<span class="count" id="cSessions"></span></a>
       <a href="#/tasks" data-view="tasks"><span class="ico">☑</span>Tasks<span class="count" id="cTasks"></span></a>
+      <a href="#/projects" data-view="projects"><span class="ico">▦</span>Projects<span class="count" id="cProjects"></span></a>
       <a href="#/workspace" data-view="workspace"><span class="ico">⊞</span>Workspace</a>
-      <a href="#/library" data-view="library"><span class="ico">▦</span>Projects<span class="count" id="cLibrary"></span></a>
+      <a href="#/library" data-view="library"><span class="ico">▥</span>Library<span class="count" id="cLibrary"></span></a>
       <a href="#/usage" data-view="usage"><span class="ico">▤</span>Usage</a>
       <a href="#/activity" data-view="activity"><span class="ico">◷</span>Activity</a>
       <div class="nav-gap"></div>
@@ -42,6 +43,7 @@
 <div class="scrim" id="sheetScrim" hidden>
   <form class="sheet" id="newSession">
     <div class="sheet-head"><h2>New session</h2><button type="button" class="btn ghost" id="sheetClose" aria-label="Close">✕</button></div>
+    <label class="field"><span>Project</span><select name="projectId" id="nsProject"></select></label>
     <label class="field"><span>Folder</span><input name="cwd" list="projects" placeholder="/Users/you/project" autocomplete="off" required><datalist id="projects"></datalist></label>
     <div class="field-row">
       <label class="field"><span>Seat</span><select name="seat" id="nsSeat"><option value="">Best seat</option></select></label>
@@ -57,6 +59,25 @@
     <div class="sheet-foot">
       <button type="button" class="btn" id="nsBrowser">Open in browser</button>
       <button type="submit" class="btn primary" id="nsSubmit">Open in Terminal</button>
+    </div>
+  </form>
+</div>
+<div class="scrim" id="projScrim" hidden>
+  <form class="sheet sheet-sm" id="newProject">
+    <div class="sheet-head"><h2 id="projTitle">New project</h2><button type="button" class="btn ghost" id="projClose" aria-label="Close">✕</button></div>
+    <label class="field"><span>Name</span><input name="pname" placeholder="e.g. Checkout API" autocomplete="off" required></label>
+    <div class="field"><span>Folder <span class="muted">(optional)</span></span>
+      <div class="seg" id="projFolderMode">
+        <button type="button" data-fm="existing" class="on">Use existing</button>
+        <button type="button" data-fm="new">Create new</button>
+        <button type="button" data-fm="none">No folder</button>
+      </div>
+    </div>
+    <label class="field" id="projFolderWrap"><input name="pfolder" list="projFolders" placeholder="~/code/checkout-api" autocomplete="off"><datalist id="projFolders"></datalist><span class="field-hint" id="projFolderHint"></span></label>
+    <label class="field"><span>Tags <span class="muted">(optional, comma separated)</span></span><input name="ptags" placeholder="backend, billing" autocomplete="off"></label>
+    <div class="sheet-foot">
+      <button type="button" class="btn" id="projCancel">Cancel</button>
+      <button type="submit" class="btn primary" id="projSubmit">Create project</button>
     </div>
   </form>
 </div>

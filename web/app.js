@@ -5,14 +5,15 @@ const VIEWS = {
   seats: ['Seats', 'One isolated Claude Code login per account'],
   sessions: ['Sessions', 'Running now, or waiting to be resumed'],
   tasks: ['Tasks', 'Plan the work, launch it as a session, watch it run'],
+  projects: ['Projects', 'Your projects, each with its tasks, live sessions and history'],
   workspace: ['Workspace', 'Watch and drive several live sessions side by side'],
-  library: ['Projects', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
+  library: ['Library', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
   usage: ['Usage', 'Tokens booked to the seat that ran each turn; cost is Claude Code\'s own estimate'],
   activity: ['Activity', 'What the daemon did and why'],
   settings: ['Settings', 'Handoff policy and automation'],
   help: ['Help', 'How it works and the matching terminal commands'],
 };
-let state = null, library = [], projects = [], usage = null, allTags = [], libFilter = '', libGroup = 'project', libStar = false, libTag = '', showArchived = false, view = 'overview', dirtyForms = new Set(), theme = 'auto';
+let state = null, library = [], projects = [], recentFolders = [], usage = null, allTags = [], libFilter = '', libGroup = 'project', libStar = false, libTag = '', showArchived = false, view = 'overview', dirtyForms = new Set(), theme = 'auto', taskProjectFilter = '', tbComposerProject = '';
 let deepResults = null, deepQuery = '', selected = new Set();
 let openGroups = {}; try { openGroups = JSON.parse(localStorage.getItem('cockpit.groups') || '{}'); } catch {}
 function saveGroups() { try { localStorage.setItem('cockpit.groups', JSON.stringify(openGroups)); } catch {} }
@@ -616,7 +617,9 @@ function renderSig() {
   if (view === 'usage') base.usage = usage && [usage.today?.total, usage.week?.total, usage.month?.total, usage.budgetMonthlyUSD, usage.all?.total, (usage.byDay || []).map(d => d.input + d.output + d.cacheRead + d.cacheWrite)];
   if (view === 'library') base.lib = { f: [libFilter, libGroup, libStar, libTag, showArchived], sel: selected.size, deep: deepResults ? deepResults.length : -1, dq: deepQuery, g: openGroups, rows: library.map(r => [r.sessionId, r.title, r.star, (r.tags || []).join(','), r.projectName, r.archived, Math.round(tot(r.tokens) / 1e5)]) };
   if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total), usage && (usage.today?.total?.cost || 0), usage && tot(usage.week?.total), usage && (usage.month?.total?.cost || 0), usage && usage.budgetMonthlyUSD];
-  if (view === 'tasks') base.tasks = (state?.tasks || []).map(t => [t.id, t.status, t.order, t.title, t.project, t.seat, t.archived, t.autoKick, t.worktree, t.live && [t.live.status, t.live.needsYou, t.live.plan && (t.live.plan.done + '/' + t.live.plan.total), t.live.cost && Math.round(t.live.cost.usd)]]);
+  if (view === 'tasks') { base.tasks = (state?.tasks || []).map(t => [t.id, t.status, t.order, t.title, t.project, t.projectId, t.seat, t.archived, t.autoKick, t.worktree, t.live && [t.live.status, t.live.needsYou, t.live.plan && (t.live.plan.done + '/' + t.live.plan.total), t.live.cost && Math.round(t.live.cost.usd)]]); base.tpf = taskProjectFilter; base.tcp = tbComposerProject; }
+  if (view === 'projects' || view === 'tasks') base.projects = (projects || []).map(p => [p.id, p.name, p.folder, (p.tags || []).join(','), p.color, p.openTasks, p.totalTasks, p.live]);
+  if (view === 'projects') base.psess = (state?.sessions || []).map(s => [s.cs, s.projectId, s.cwd, s.alive, s.status]);
   return JSON.stringify(base);
 }
 // Count a number up to its target on view entrance. Elements opt in with data-count (raw value)
@@ -665,7 +668,7 @@ function tbPlay(first) {
   document.querySelectorAll('#content .tb-card').forEach(n => {
     const a = n.getBoundingClientRect(), b = first.get(n.dataset.id);
     if (b) { const dx = b.left - a.left, dy = b.top - a.top; if (dx || dy) tbSpring2D(n, dx, dy, { k: 380, c: 30 }); }
-    else { try { n.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
+    else { try { n.animate([{ opacity: 0, transform: 'translateY(8px) scale(.95)' }, { opacity: 1, transform: 'none' }], { duration: 440, easing: 'cubic-bezier(.34,1.56,.64,1)' }); } catch {} n.classList.add('tb-justadded'); setTimeout(() => n.classList.remove('tb-justadded'), 900); }
   });
 }
 // Run a status-changing action, then reconcile with one rebuild and glide the cards into their new slots.
@@ -708,17 +711,32 @@ function tbCard(t) {
   </article>`;
 }
 function vTasks() {
-  const tasks = state?.tasks || [];
+  let tasks = state?.tasks || [];
+  const fp = (taskProjectFilter && (projects || []).some(p => p.id === taskProjectFilter)) ? taskProjectFilter : '';
+  if (taskProjectFilter && !fp) taskProjectFilter = '';            // project was deleted; drop the stale filter
+  if (fp) tasks = tasks.filter(t => t.projectId === fp);
+  const composerDefault = fp || tbComposerProject;
   const cols = TB_COLS.map(([key, label]) => {
     const items = tasks.filter(t => t.status === key).sort((a, b) => (a.order || 0) - (b.order || 0));
     const cards = items.map(tbCard).join('');
-    const add = key === 'backlog' ? `<form class="tb-add" id="tbAdd"><input class="inp sm" name="ttitle" placeholder="+ Add a task" autocomplete="off"><input class="inp sm" name="tcwd" list="tbProjects" placeholder="folder (needed to launch)" autocomplete="off"></form>` : '';
+    const folderSvg = '<svg class="tb-add-ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+    const add = key === 'backlog' ? `<form class="tb-add" id="tbAdd" autocomplete="off">
+      <input class="tb-add-title" name="ttitle" placeholder="Add a task…" aria-label="Task title" autocomplete="off" spellcheck="false">
+      <div class="tb-add-row">
+        <label class="tb-add-proj" title="Link this task to a project">${folderSvg}<select class="tb-add-sel" name="tproj" aria-label="Project">${projectOptionsHtml(composerDefault)}</select><span class="tb-add-caret" aria-hidden="true">▾</span></label>
+        <button class="tb-add-btn" type="submit" aria-label="Add task" disabled>Add</button>
+      </div>
+    </form>` : '';
     return `<div class="tb-col" data-status="${key}"><div class="tb-colhead"><span class="tb-colname">${label}</span><span class="tb-colcount num">${items.length}</span></div><div class="tb-cards" data-drop="${key}">${cards || '<div class="tb-empty"></div>'}${add}</div></div>`;
   }).join('');
-  return `<datalist id="tbProjects">${projects.map(p => `<option value="${esc(p.cwd)}">`).join('')}</datalist><div class="tb-board">${cols}</div>`;
+  const sp = fp ? selectedProject(fp) : null;
+  const filterBar = sp ? `<div class="tb-filter"><span class="muted">Showing</span><span class="tag"><span class="proj-dot sm" style="background:${esc(sp.color || 'var(--accent)')}"></span>${esc(sp.name)}</span><button class="btn sm ghost" id="tbClearFilter">Show all ✕</button></div>` : '';
+  const folders = [...new Set([...(recentFolders || []).map(r => r.cwd), ...(projects || []).map(p => p.folder).filter(Boolean)])];
+  return `<datalist id="tbProjects">${folders.map(c => `<option value="${esc(c)}">`).join('')}</datalist>${filterBar}<div class="tb-board">${cols}</div>`;
 }
 function wireTasks(el) {
   const byId = id => (state?.tasks || []).find(t => t.id === id) || null;
+  const clr = el.querySelector('#tbClearFilter'); if (clr) clr.onclick = () => { taskProjectFilter = ''; lastSig = null; render(); };
   const prevSib = n => { let p = n.previousElementSibling; while (p && !p.classList.contains('tb-card')) p = p.previousElementSibling; return p; };
   const nextSib = n => { let p = n.nextElementSibling; while (p && !p.classList.contains('tb-card')) p = p.nextElementSibling; return p; };
   const updateCounts = () => el.querySelectorAll('.tb-col').forEach(col => { const c = col.querySelector('.tb-colcount'); if (c) c.textContent = col.querySelectorAll('.tb-cards .tb-card').length; });
@@ -755,13 +773,46 @@ function wireTasks(el) {
   });
 
   const add = el.querySelector('#tbAdd');
-  if (add) add.onsubmit = ev => {
-    ev.preventDefault();
-    const title = add.querySelector('[name=ttitle]').value.trim(); if (!title) return;
-    const cwd = add.querySelector('[name=tcwd]').value.trim() || null;
-    const project = cwd ? cwd.replace(/\/+$/, '').split('/').pop() : null;
-    tbMutate(() => post('/api/tasks', { title, cwd, project }));
-  };
+  if (add) {
+    const titleEl = add.querySelector('[name=ttitle]');
+    const btn = add.querySelector('.tb-add-btn');
+    const sync = () => { if (btn) btn.disabled = !titleEl.value.trim(); };
+    const projSel = add.querySelector('[name=tproj]');
+    const submitAdd = async () => {
+      const title = titleEl.value.trim(); if (!title) return;
+      const projectId = projSel && projSel.value && projSel.value !== '__new__' ? projSel.value : null;
+      titleEl.value = ''; sync();
+      await tbMutate(() => post('/api/tasks', { title, projectId }));
+      toast(`Added “${title}” to Backlog`);
+      // Keep the flow going: refocus the fresh composer so you can brain-dump a backlog.
+      const again = el.querySelector('#tbAdd [name=ttitle]'); if (again) { again.focus(); dirtyForms.add('tasks'); }
+    };
+    // Project picker: remember the pick across adds; "+ New project…" opens the dialog, keeping any typed title.
+    if (projSel) {
+      let prev = projSel.value;
+      const remember = () => { if (projSel.value !== '__new__') prev = projSel.value; };
+      projSel.addEventListener('focus', remember); projSel.addEventListener('mousedown', remember);
+      projSel.addEventListener('change', () => {
+        if (projSel.value === '__new__') {
+          projSel.value = prev;
+          const keep = titleEl.value;
+          openNewProject(pr => {
+            tbComposerProject = pr.id; dirtyForms.delete('tasks'); lastSig = null; render();
+            const t = el.querySelector('#tbAdd [name=ttitle]');
+            if (t) { t.value = keep; t.focus(); if (keep.trim()) { dirtyForms.add('tasks'); const btn = el.querySelector('#tbAdd .tb-add-btn'); if (btn) btn.disabled = false; } }
+          });
+        } else { prev = projSel.value; tbComposerProject = projSel.value; }
+      });
+    }
+    // Freeze poll-driven rebuilds while composing, so a background refresh can't wipe what you type.
+    titleEl.addEventListener('input', () => { dirtyForms.add('tasks'); sync(); });
+    add.addEventListener('focusin', () => dirtyForms.add('tasks'));
+    add.addEventListener('focusout', () => { if (!titleEl.value.trim()) dirtyForms.delete('tasks'); });
+    // Enter commits even where the browser wouldn't implicitly submit; stop it bubbling to global keys.
+    titleEl.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); submitAdd(); } else if (e.key === 'Escape') { e.preventDefault(); titleEl.value = ''; sync(); titleEl.blur(); } });
+    add.onsubmit = ev => { ev.preventDefault(); submitAdd(); };
+    sync();
+  }
 
   // --- spring drag: 1:1 tracking, live reflow under the finger, velocity handoff on drop ---
   let drag = null;
@@ -838,14 +889,122 @@ function wireTasks(el) {
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp, { once: true });
   }));
 }
+/* ---------- Projects ---------- */
+function selectedProject(id) { return (projects || []).find(p => p.id === id) || null; }
+// Options for a project <select>: "No project", every project, then the "+ New project…" sentinel.
+function projectOptionsHtml(selId, noneLabel = 'No project') {
+  const valid = (projects || []).some(p => p.id === selId) ? selId : '';
+  const opts = (projects || []).map(p => `<option value="${esc(p.id)}"${p.id === valid ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  return `<option value=""${!valid ? ' selected' : ''}>${noneLabel}</option>${opts}<option value="__new__">+ New project…</option>`;
+}
+// Wire a project <select> so the sentinel opens the create dialog and the result gets selected. Returns nothing.
+function wireProjectSelect(sel, onPick) {
+  let prev = sel.value;
+  const remember = () => { if (sel.value !== '__new__') prev = sel.value; };
+  sel.addEventListener('focus', remember); sel.addEventListener('mousedown', remember);
+  sel.addEventListener('change', () => {
+    if (sel.value === '__new__') {
+      sel.value = prev;
+      openNewProject(pr => { if (![...sel.options].some(o => o.value === pr.id)) sel.add(new Option(pr.name, pr.id), sel.options[sel.options.length - 1]); sel.value = pr.id; prev = pr.id; onPick && onPick(pr); });
+    } else { prev = sel.value; onPick && onPick(selectedProject(sel.value)); }
+  });
+}
+
+// --- New / Edit project dialog (shared by the hub, the Tasks composer, and New Session) ---
+const projScrim = $('#projScrim'), projForm = $('#newProject');
+let projFolderMode = 'existing', projEditingId = null, projDoneCb = null;
+function setProjFolderMode(mode) {
+  projFolderMode = mode;
+  $('#projFolderMode').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.fm === mode));
+  const wrap = $('#projFolderWrap'), inp = projForm.pfolder, hint = $('#projFolderHint');
+  if (mode === 'none') { wrap.style.display = 'none'; }
+  else { wrap.style.display = ''; inp.placeholder = mode === 'new' ? '~/code/new-project' : '~/code/existing-project'; hint.textContent = mode === 'new' ? "I'll create this folder if it doesn't exist." : 'Point at a folder that already exists.'; }
+}
+function openProjectDialog({ project = null, onDone = null } = {}) {
+  projEditingId = project ? project.id : null; projDoneCb = onDone;
+  projForm.reset();
+  $('#projFolders').innerHTML = (recentFolders || []).map(r => `<option value="${esc(short(r.cwd))}">`).join('');
+  $('#projTitle').textContent = project ? 'Edit project' : 'New project';
+  $('#projSubmit').textContent = project ? 'Save' : 'Create project';
+  if (project) {
+    projForm.pname.value = project.name || ''; projForm.ptags.value = (project.tags || []).join(', ');
+    if (project.folder) { setProjFolderMode('existing'); projForm.pfolder.value = short(project.folder); } else setProjFolderMode('none');
+  } else setProjFolderMode('existing');
+  projScrim.hidden = false; setTimeout(() => projForm.pname.focus(), 30);
+}
+function openNewProject(cb) { openProjectDialog({ onDone: cb }); }
+function closeProjectDialog() { projScrim.hidden = true; projDoneCb = null; projEditingId = null; }
+$('#projClose').onclick = closeProjectDialog; $('#projCancel').onclick = closeProjectDialog;
+projScrim.addEventListener('click', e => { if (e.target === projScrim) closeProjectDialog(); });
+$('#projFolderMode').querySelectorAll('button').forEach(b => b.onclick = () => setProjFolderMode(b.dataset.fm));
+projForm.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const name = projForm.pname.value.trim(); if (!name) return projForm.pname.focus();
+  const body = { name };
+  if (projFolderMode === 'none') body.folder = '';
+  else { const f = projForm.pfolder.value.trim(); body.folder = f; if (f) body.createFolder = projFolderMode === 'new'; }
+  body.tags = projForm.ptags.value.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    const j = projEditingId ? await post(`/api/projects/${projEditingId}`, body) : await post('/api/projects', body);
+    const cb = projDoneCb, editing = projEditingId; closeProjectDialog();
+    if (j.project && !projects.some(p => p.id === j.project.id)) projects = [...projects, j.project];
+    toast(editing ? 'Project saved' : `Project “${name}” created`);
+    await load(); loadSlow();
+    if (cb && j.project) cb(j.project);
+  } catch {}
+});
+window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !projScrim.hidden) { ev.stopPropagation(); closeProjectDialog(); } });
+
+function vProjects() {
+  const list = projects || [];
+  const head = `<div class="proj-head"><div><h2 class="proj-h">Projects</h2><div class="muted">${list.length} project${list.length === 1 ? '' : 's'} · tasks, sessions and history in one place</div></div><button class="btn primary" id="projNew">+ New project</button></div>`;
+  if (!list.length) return `${head}<div class="empty big proj-empty"><div class="proj-empty-ic">▦</div><div class="proj-empty-t">No projects yet</div><div class="muted" style="max-width:420px">Create a project to group its tasks, live sessions and history. A project can point at a folder, or stay folder-free so you pick one at launch.</div><button class="btn primary" id="projNew2">+ New project</button></div>`;
+  const cards = list.map(p => {
+    const sess = (state?.sessions || []).filter(s => s.kind !== 'probe' && (s.projectId === p.id || (p.folder && s.cwd === p.folder)));
+    const liveSess = sess.filter(s => s.alive);
+    const tags = (p.tags || []).map(t => `<span class="tag sm">${esc(t)}</span>`).join('');
+    const done = Math.max(0, (p.totalTasks || 0) - (p.openTasks || 0));
+    const liveRow = liveSess.length ? `<div class="proj-live">${liveSess.slice(0, 4).map(s => `<button class="proj-live-row" data-pact="open" data-cs="${esc(s.cs)}" title="Open this session"><span class="dot ${s.status === 'idle' ? 'starting' : 'busy'}"></span><span class="proj-live-nm">${esc(s.name || short(s.cwd || '') || s.cs)}</span><span class="muted">${esc(s.seat || '')}</span></button>`).join('')}</div>` : '';
+    return `<article class="proj-card" data-pid="${esc(p.id)}">
+      <span class="proj-bar" style="background:${esc(p.color || 'var(--accent)')}"></span>
+      <div class="proj-main">
+        <div class="proj-name-row"><span class="proj-dot" style="background:${esc(p.color || 'var(--accent)')}"></span><span class="proj-name">${esc(p.name)}</span><span class="tb-sp"></span><button class="proj-ic-btn" data-pact="edit" data-pid="${esc(p.id)}" title="Edit project" aria-label="Edit project">✎</button><button class="proj-ic-btn danger" data-pact="delete" data-pid="${esc(p.id)}" title="Delete project" aria-label="Delete project">✕</button></div>
+        <div class="proj-folder">${p.folder ? `<span class="mono">${esc(short(p.folder))}</span>` : '<span class="muted">No folder · chosen at launch</span>'}</div>
+        ${tags ? `<div class="proj-tags">${tags}</div>` : ''}
+        <div class="proj-stats"><span><b>${p.openTasks || 0}</b> open</span><span><b>${done}</b> done</span><span class="${p.live ? 'proj-livecount' : ''}"><b>${p.live || 0}</b> live</span></div>
+        ${liveRow}
+        <div class="proj-actions"><button class="btn sm" data-pact="tasks" data-pid="${esc(p.id)}">Tasks</button><button class="btn sm" data-pact="session" data-pid="${esc(p.id)}">New session</button><button class="btn sm ghost" data-pact="history" data-pid="${esc(p.id)}">History</button></div>
+      </div>
+    </article>`;
+  }).join('');
+  return `${head}<div class="proj-grid">${cards}</div>`;
+}
+function wireProjects(el) {
+  const openNew = () => openProjectDialog({ onDone: () => {} });
+  const n1 = el.querySelector('#projNew'); if (n1) n1.onclick = openNew;
+  const n2 = el.querySelector('#projNew2'); if (n2) n2.onclick = openNew;
+  el.querySelectorAll('[data-pact]').forEach(b => b.onclick = async ev => {
+    ev.stopPropagation();
+    const act = b.dataset.pact, pid = b.dataset.pid, cs = b.dataset.cs, p = selectedProject(pid);
+    if (act === 'open' && cs) { try { await openSession(cs, 'browser'); } catch {} return; }
+    if (act === 'tasks') { taskProjectFilter = pid; lastSig = null; location.hash = '#/tasks'; return; }
+    if (act === 'session') { openSheet(); setTimeout(() => { const s = $('#nsProject'); if (s) { s.value = pid; s.dispatchEvent(new Event('change', { bubbles: true })); } }, 40); return; }
+    if (act === 'history') { libFilter = p ? (p.folder ? short(p.folder) : p.name) : ''; lastSig = null; location.hash = '#/library'; return; }
+    if (act === 'edit' && p) return openProjectDialog({ project: p, onDone: () => {} });
+    if (act === 'delete' && p) { if (!confirm(`Delete project “${p.name}”? Its tasks and the folder on disk are kept — they just lose the project link.`)) return; try { await post(`/api/projects/${pid}/delete`); toast('Project deleted'); await load(); loadSlow(); } catch {} return; }
+  });
+}
+
 function render() {
   if (!state) return;
+  if (Array.isArray(state.projects)) projects = state.projects;   // keep the project list + counts fresh each poll
   const [title, sub] = VIEWS[view] || VIEWS.overview;
   $('#viewTitle').textContent = title; $('#viewSub').textContent = sub;
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === view));
   const running = state.sessions.filter(s => s.alive && s.kind === 'claude' && s.managed).length;
   $('#cSeats').textContent = state.seats.length || ''; $('#cSessions').textContent = running || ''; $('#cLibrary').textContent = library.length || '';
   { const tEl = $('#cTasks'); if (tEl) tEl.textContent = (state.tasks || []).filter(t => t.status !== 'done').length || ''; }
+  { const pEl = $('#cProjects'); if (pEl) pEl.textContent = (projects || []).length || ''; }
   const attnN = state.seats.length ? attnItems().length : 0; const cAttn = $('#cAttn'); if (cAttn) { cAttn.textContent = attnN || ''; cAttn.className = 'count' + (attnN ? ' attn' : ''); }
   $('#brandSub').textContent = `${state.seats.length} seat${state.seats.length === 1 ? '' : 's'} · ${running} running`;
   $('#daemonLine').textContent = `daemon up ${Math.round(state.uptime / 60000)} min · v${state.version}`;
@@ -861,7 +1020,7 @@ function render() {
     else if (wsCtl.built) wsCtl.update();
     return;
   }
-  const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, tasks: vTasks, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
+  const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, tasks: vTasks, projects: vProjects, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
   const el = $('#content');
   const focus = document.activeElement?.id;
   el.innerHTML = fn();
@@ -870,6 +1029,7 @@ function render() {
   if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   wire(el);
   if (view === 'tasks') wireTasks(el);
+  if (view === 'projects') wireProjects(el);
   if (viewChanged) { animateCounts(el); animateEnter(el); }
 }
 // One-time entrance draw for the Today timeline bars, on navigation only.
@@ -965,12 +1125,20 @@ window.addEventListener('hashchange', () => setView(location.hash.replace(/^#\//
 
 /* new-session sheet */
 const sheet = $('#sheetScrim'), nsForm = $('#newSession');
-function openSheet() { $('#nsSeat').innerHTML = seatOptions(null); $('#projects').innerHTML = projects.map(p => `<option value="${esc(p.cwd)}">${esc(short(p.cwd))}</option>`).join(''); if (!nsForm.cwd.value && projects[0]) nsForm.cwd.value = projects[0].cwd; sheet.hidden = false; nsForm.cwd.focus(); nsForm.cwd.select(); }
+function openSheet() {
+  $('#nsSeat').innerHTML = seatOptions(null);
+  $('#nsProject').innerHTML = projectOptionsHtml('');
+  $('#projects').innerHTML = (recentFolders || []).map(r => `<option value="${esc(r.cwd)}">${esc(short(r.cwd))}</option>`).join('');
+  if (!nsForm.cwd.value && recentFolders[0]) nsForm.cwd.value = recentFolders[0].cwd;
+  sheet.hidden = false; nsForm.cwd.focus(); nsForm.cwd.select();
+}
 function closeSheet() { sheet.hidden = true; }
 $('#btnNew').onclick = openSheet; $('#sheetClose').onclick = closeSheet;
 sheet.addEventListener('click', ev => { if (ev.target === sheet) closeSheet(); });
 window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !sheet.hidden) closeSheet(); if (ev.key === 'n' && !sheet.hidden === false && !/input|select|textarea/i.test(document.activeElement?.tagName || '')) openSheet(); });
-const nsBody = () => ({ cwd: nsForm.cwd.value.trim(), seat: nsForm.seat.value || null, name: nsForm.name.value.trim() || null, extra: nsForm.extra.value.trim() ? nsForm.extra.value.trim().split(/\s+/) : [], prompt: nsForm.prompt.value.trim() || null, worktree: !!nsForm.worktree?.checked, branch: (nsForm.branch?.value || '').trim() || null });
+const nsBody = () => ({ cwd: nsForm.cwd.value.trim(), projectId: (nsForm.projectId?.value && nsForm.projectId.value !== '__new__') ? nsForm.projectId.value : null, seat: nsForm.seat.value || null, name: nsForm.name.value.trim() || null, extra: nsForm.extra.value.trim() ? nsForm.extra.value.trim().split(/\s+/) : [], prompt: nsForm.prompt.value.trim() || null, worktree: !!nsForm.worktree?.checked, branch: (nsForm.branch?.value || '').trim() || null });
+// Picking a project fills the folder from it (editable); the sentinel opens the create dialog.
+wireProjectSelect($('#nsProject'), pr => { if (pr && pr.folder) nsForm.cwd.value = short(pr.folder); });
 function nsWhenAt() {
   const v = nsForm.when.value;
   if (v === 'now') return null;
@@ -1017,7 +1185,7 @@ function maybeNotify() {
 async function loadSlow() {
   try {
     const [l, p, u] = await Promise.all([fetch('/api/library').then(r => r.json()), fetch('/api/projects').then(r => r.json()), fetch('/api/usage').then(r => r.json())]);
-    library = l.sessions || []; projects = p.projects || []; usage = u; allTags = l.tags || [];
+    library = l.sessions || []; projects = p.projects || projects; recentFolders = p.recent || []; usage = u; allTags = l.tags || [];
     if (state) render();
   } catch {}
 }
