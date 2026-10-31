@@ -295,7 +295,7 @@ function vOverview() {
     ${ovAccounts()}
     ${ovToday()}
     <div class="grid cols-2">
-      <div class="card flat"><div class="card-head"><h2>Today</h2><a href="#/usage" class="tiny">Usage</a></div>
+      <div class="card flat"><div class="card-head"><h2>Today's totals</h2><a href="#/usage" class="tiny">Usage</a></div>
         <div class="statrow">
           <div class="stat"><div class="s-val" data-count="${tot(t)}" data-countfmt="tok">${fmtTok(tot(t))}</div><div class="s-lbl">tokens today</div></div>
           <div class="stat"><div class="s-val" data-count="${t?.cost || 0}" data-countfmt="cost">${fmtCost(t?.cost)}</div><div class="s-lbl">cost today</div></div>
@@ -507,7 +507,7 @@ function usageLimits() {
     <div class="tiny muted" style="margin-top:10px">The 5-hour window is Claude Code's rolling limit. “Check” opens Claude briefly on a seat to refresh the reading — no prompt is sent.</div></div>`;
 }
 function vUsage() {
-  if (!usage) return '<div class="empty big">Loading…</div>';
+  if (!usage || !usage.today || !usage.week || !usage.month) return '<div class="empty big">Loading…</div>';
   const storedTok = library.reduce((a, r) => a + tot(r.tokens), 0), storedCost = library.reduce((a, r) => a + (r.costUSD || 0), 0);
   const days = usage.byDay || []; const max = Math.max(1, ...days.map(tot)); const maxIdx = days.reduce((bi, d, i) => tot(d) > tot(days[bi]) ? i : bi, 0);
   const chart = `<div class="bars">${days.map((d, i) => { const v = tot(d); const h = Math.round(v / max * 100); return `<div class="bcol" title="${esc(d.day)}: ${fmtTok(v)} tokens, ${d.turns} turns, cost ${fmtCost(d.cost)}">${v && (i === maxIdx || i === days.length - 1) ? `<span class="blabel">${fmtTok(v)}</span>` : ''}<div class="b ${i === days.length - 1 ? 'today' : ''}" style="height:${Math.max(v ? 3 : 0, h)}%"></div><span class="bday">${d.day.slice(5).replace('-', '/')}</span></div>`; }).join('')}</div>`;
@@ -797,7 +797,7 @@ function wireTasks(el) {
     }
     try {
       if (act === 'attach') await openSession(cs, 'browser');
-      else if (act === 'stop') { await post(`/api/sessions/${cs}/stop`); toast('Session stopped'); }
+      else if (act === 'stop') { await post(`/api/sessions/${encodeURIComponent(cs)}/stop`); toast('Session stopped'); }
     } catch {}
     setTimeout(load, 250);
   });
@@ -918,7 +918,7 @@ function wireTasks(el) {
   const onUp = () => {
     window.removeEventListener('pointermove', onMove);
     if (!drag) return;
-    if (!drag.moved) { const id = drag.t; drag = null; return toggleDetail(id); }
+    if (!drag.moved) { const id = drag.t, fd = drag.frozeDirty; drag = null; if (fd) dirtyForms.delete('tasks'); return toggleDetail(id); }
     const card = drag.el, ph = drag.ph, h = drag.hist, id = card.dataset.id; let vx = 0, vy = 0;
     if (h.length >= 2) { const a = h[h.length - 1], b = h[0], dt = Math.max(16, a.t - b.t); vx = (a.x - b.x) / dt * 1000; vy = (a.y - b.y) / dt * 1000; }
     card.style.transform = ''; const relRect = card.getBoundingClientRect();
@@ -937,7 +937,11 @@ function wireTasks(el) {
     if (e.button != null && e.button !== 0) return;
     if (e.target.closest('button, a, input, select, textarea, label, .tb-detail')) return;
     const r = card.getBoundingClientRect();
-    drag = { t: card.dataset.id, el: card, offX: e.clientX - r.left, offY: e.clientY - r.top, w: r.width, h: r.height, sx: e.clientX, sy: e.clientY, moved: false, ph: null, tilt: 0, lastX: null, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+    // Freeze the board for the whole press so a 3s poll can't rebuild #content and detach the card
+    // mid-gesture (before the 6px threshold). frozeDirty records whether WE froze it, so a plain
+    // click that never became a drag can unfreeze without stepping on an in-progress composer edit.
+    const frozeDirty = !dirtyForms.has('tasks'); dirtyForms.add('tasks');
+    drag = { t: card.dataset.id, el: card, offX: e.clientX - r.left, offY: e.clientY - r.top, w: r.width, h: r.height, sx: e.clientX, sy: e.clientY, moved: false, ph: null, tilt: 0, lastX: null, frozeDirty, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
     try { card.setPointerCapture(e.pointerId); } catch {}
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp, { once: true });
   }));
@@ -1068,6 +1072,7 @@ function openProjDrawer({ pid = null, folder = null } = {}) {
   const lib = inner.querySelector('[data-dlib-proj],[data-dlib-folder]');
   if (lib) lib.onclick = () => { if (lib.dataset.dlibProj) { libProject = lib.dataset.dlibProj; libFilter = ''; } else { libFilter = lib.dataset.dlibFolder; libProject = ''; } closeProjDrawer(); lastSig = null; location.hash = '#/library'; };
   scrim.hidden = false;
+  try { inner.querySelector('[data-dclose]')?.focus(); } catch {}   // move focus into the drawer for keyboard/SR users
   requestAnimationFrame(() => {
     scrim.classList.add('open');
     if (!tbReduce()) inner.querySelectorAll('.drawer-row').forEach((r, i) => { try { r.animate([{ opacity: 0, transform: 'translateX(16px)' }, { opacity: 1, transform: 'none' }], { duration: 380, delay: 60 + i * 34, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }); } catch {} });
@@ -1164,11 +1169,15 @@ function render() {
   }
   const fn = { overview: vOverview, seats: vSeats, sessions: vSessions, tasks: vTasks, projects: vProjects, library: vLibrary, usage: vUsage, activity: vActivity, settings: vSettings, help: vHelp }[view] || vOverview;
   const el = $('#content');
-  const focus = document.activeElement?.id;
+  const active = document.activeElement;
+  const focus = active?.id;
+  // Remember the caret so a rebuild mid-typing does not jump it to the end (which scrambles
+  // edits in the middle of the filter and breaks IME composition).
+  const caret = focus === 'libSearch' ? { s: active.selectionStart, e: active.selectionEnd } : null;
   el.innerHTML = fn();
   // Stagger entrance only when you navigate to a view, not on data refreshes.
   if (viewChanged && !/\bnomotion\b/.test(location.search)) { el.classList.remove('view-enter'); void el.offsetWidth; el.classList.add('view-enter'); }
-  if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
+  if (focus === 'libSearch') { const i = $('#libSearch'); if (i) { i.focus(); const n = i.value.length; const s = caret ? Math.min(caret.s ?? n, n) : n, e = caret ? Math.min(caret.e ?? n, n) : n; try { i.setSelectionRange(s, e); } catch {} } }
   wire(el);
   if (view === 'tasks') wireTasks(el);
   if (view === 'projects') wireProjects(el);
@@ -1187,10 +1196,10 @@ function wire(el) {
     try {
       if (act === 'term') await openSession(cs, 'terminal');
       if (act === 'web') await openSession(cs, 'browser');
-      if (act === 'handoff') { const j = await post(`/api/sessions/${cs}/handoff`, { toSeat: pick(cs) }); toast(j.queued ? `Handoff to ${j.to} queued until this turn ends` : `Handing off to ${j.to}`); }
-      if (act === 'stop') { if (confirm('Stop this session? You can resume it later from Sessions or the Library.')) { await post(`/api/sessions/${cs}/stop`); toast('Session stopped'); } }
-      if (act === 'restore') { await post(`/api/sessions/${cs}/restore`, { seat: pick(cs) }); await openSession(cs, 'terminal'); }
-      if (act === 'forget') await post(`/api/sessions/${cs}/forget`);
+      if (act === 'handoff') { const j = await post(`/api/sessions/${encodeURIComponent(cs)}/handoff`, { toSeat: pick(cs) }); toast(j.queued ? `Handoff to ${j.to} queued until this turn ends` : `Handing off to ${j.to}`); }
+      if (act === 'stop') { if (confirm('Stop this session? You can resume it later from Sessions or the Library.')) { await post(`/api/sessions/${encodeURIComponent(cs)}/stop`); toast('Session stopped'); } }
+      if (act === 'restore') { await post(`/api/sessions/${encodeURIComponent(cs)}/restore`, { seat: pick(cs) }); await openSession(cs, 'terminal'); }
+      if (act === 'forget') await post(`/api/sessions/${encodeURIComponent(cs)}/forget`);
       if (act === 'resume' || act === 'resume-web') await startSession({ resumeId: b.dataset.id, cwd: b.dataset.cwd, seat: pick(b.dataset.id) }, act === 'resume-web' ? 'browser' : 'terminal');
       if (act === 'probe') { await post(`/api/seats/${encodeURIComponent(seat)}/probe`); toast(`Checking ${seat}…`); }
       if (act === 'login') { const j = await post(`/api/seats/${encodeURIComponent(seat)}/login`); await openSession(j.cs, 'terminal'); }
@@ -1264,7 +1273,13 @@ function wire(el) {
     settings.addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target; applyTheme(f.theme.value); applyMotion(f.motion.value); await post('/api/config', { handoff: { mode: f.mode.value, thresholdPct: Number(f.thresholdPct.value), minGainPct: Number(f.minGainPct.value), autoContinue: f.autoContinue.checked, continueMessage: f.continueMessage.value.trim() || 'Please continue where you left off.' }, notifications: f.notifications.checked, autoCheckMin: Number(f.autoCheckMin.value), budgetMonthlyUSD: Number(f.budgetMonthlyUSD.value) || 0 }); dirtyForms.delete('settings'); toast('Settings saved'); load(); });
   }
 }
-function setView(v) { view = VIEWS[v] ? v : 'overview'; try { localStorage.setItem('cockpit.view', view); } catch {} window.scrollTo(0, 0); render(); }
+function setView(v) {
+  // Clear the departing view's dirty flag, else render() keeps bailing (`if (dirtyForms.has(view)) return`)
+  // and that view is stuck showing the wrong content until a full reload. Also close the sessions
+  // drawer so it does not linger over the next view.
+  dirtyForms.delete(view); closeProjDrawer();
+  view = VIEWS[v] ? v : 'overview'; try { localStorage.setItem('cockpit.view', view); } catch {} window.scrollTo(0, 0); render();
+}
 window.addEventListener('hashchange', () => setView(location.hash.replace(/^#\//, '')));
 
 /* new-session sheet */
@@ -1279,7 +1294,13 @@ function openSheet() {
 function closeSheet() { sheet.hidden = true; }
 $('#btnNew').onclick = openSheet; $('#sheetClose').onclick = closeSheet;
 sheet.addEventListener('click', ev => { if (ev.target === sheet) closeSheet(); });
-window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !sheet.hidden) closeSheet(); if (ev.key === 'n' && !sheet.hidden === false && !/input|select|textarea/i.test(document.activeElement?.tagName || '')) openSheet(); });
+window.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && !sheet.hidden) closeSheet();
+  // "n" opens New session, but only when nothing else is open and you are not typing.
+  if (ev.key === 'n' && sheet.hidden && projScrim.hidden && !(projDrawerEl && !projDrawerEl.hidden)
+    && !document.querySelector('.cmdk-scrim:not([hidden])')
+    && !/input|select|textarea/i.test(document.activeElement?.tagName || '')) openSheet();
+});
 const nsBody = () => ({ cwd: nsForm.cwd.value.trim(), projectId: (nsForm.projectId?.value && nsForm.projectId.value !== '__new__') ? nsForm.projectId.value : null, seat: nsForm.seat.value || null, name: nsForm.name.value.trim() || null, extra: nsForm.extra.value.trim() ? nsForm.extra.value.trim().split(/\s+/) : [], prompt: nsForm.prompt.value.trim() || null, worktree: !!nsForm.worktree?.checked, branch: (nsForm.branch?.value || '').trim() || null });
 // Picking a project fills the folder from it (editable); the sentinel opens the create dialog.
 wireProjectSelect($('#nsProject'), pr => { if (pr && pr.folder) nsForm.cwd.value = short(pr.folder); });
@@ -1304,10 +1325,12 @@ $('#btnCheckAll').onclick = async () => { await post('/api/probe-all'); toast('C
 
 /* data */
 async function load() {
-  try {
-    const r = await fetch('/api/state'); state = await r.json();
-    render(); maybeNotify();
-  } catch { $('#brandSub').textContent = 'daemon unreachable'; $('#daemonLine').textContent = 'In a terminal: cockpit daemon start'; }
+  let s;
+  try { const r = await fetch('/api/state'); s = await r.json(); }
+  catch { $('#brandSub').textContent = 'daemon unreachable'; $('#daemonLine').textContent = 'In a terminal: cockpit daemon start'; return; }
+  state = s;
+  // Keep a render exception from masquerading as a dead daemon (it would blank the view and lie).
+  try { render(); maybeNotify(); } catch (e) { console.error('render failed', e); }
 }
 // Browser desktop notifications when a managed session finishes its turn (or crashes).
 let prevStatus = {}, notifySeeded = false;
@@ -1367,8 +1390,8 @@ setInterval(load, 3000); setInterval(loadSlow, 15000);
     }
     for (const s of (state?.sessions || []).filter(x => x.alive && x.managed && x.kind === 'claude')) {
       c.push({ label: `Open · ${s.name || s.cs}`, hint: `session · ${s.seat}`, run: () => openSession(s.cs, 'terminal') });
-      c.push({ label: `Hand off · ${s.name || s.cs}`, hint: 'session', run: () => post(`/api/sessions/${s.cs}/handoff`, {}).then(j => toast(j.queued ? `Queued → ${j.to}` : `→ ${j.to}`)) });
-      c.push({ label: `Stop · ${s.name || s.cs}`, hint: 'session', run: () => post(`/api/sessions/${s.cs}/stop`).then(() => toast('Stopped')) });
+      c.push({ label: `Hand off · ${s.name || s.cs}`, hint: 'session', run: () => post(`/api/sessions/${encodeURIComponent(s.cs)}/handoff`, {}).then(j => toast(j.queued ? `Queued → ${j.to}` : `→ ${j.to}`)) });
+      c.push({ label: `Stop · ${s.name || s.cs}`, hint: 'session', run: () => post(`/api/sessions/${encodeURIComponent(s.cs)}/stop`).then(() => toast('Stopped')) });
     }
     for (const r of (library || []).slice(0, 40)) c.push({ label: `Resume · ${r.title}`, hint: `${r.projectName || ''}`, run: () => startSession({ resumeId: r.sessionId, cwd: r.cwd }, 'terminal') });
     for (const cm of cmds()) c.push({ label: `Run: ${cm.name}`, hint: 'command', run: () => { openSheet(); setTimeout(() => { if (nsForm.prompt) nsForm.prompt.value = cm.text; }, 60); } });

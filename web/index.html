@@ -41,7 +41,7 @@
 </div>
 
 <div class="scrim" id="sheetScrim" hidden>
-  <form class="sheet" id="newSession">
+  <form class="sheet" id="newSession" role="dialog" aria-modal="true" aria-label="New session">
     <div class="sheet-head"><h2>New session</h2><button type="button" class="btn ghost" id="sheetClose" aria-label="Close">✕</button></div>
     <label class="field"><span>Project</span><select name="projectId" id="nsProject"></select></label>
     <label class="field"><span>Folder</span><input name="cwd" list="projects" placeholder="/Users/you/project" autocomplete="off" required><datalist id="projects"></datalist></label>
@@ -63,7 +63,7 @@
   </form>
 </div>
 <div class="scrim" id="projScrim" hidden>
-  <form class="sheet sheet-sm" id="newProject">
+  <form class="sheet sheet-sm" id="newProject" role="dialog" aria-modal="true" aria-label="New project">
     <div class="sheet-head"><h2 id="projTitle">New project</h2><button type="button" class="btn ghost" id="projClose" aria-label="Close">✕</button></div>
     <label class="field"><span>Name</span><input name="pname" placeholder="e.g. Checkout API" autocomplete="off" required></label>
     <div class="field"><span>Folder <span class="muted">(optional)</span></span>
