@@ -470,22 +470,36 @@ function handleHook(ev, q, body) {
   schedulePersist();
 }
 
-// Claude Code writes its TodoWrite plan to ~/.claude/todos/<sessionId>*.json; surface it live.
+// Claude Code writes its TodoWrite plan to <configDir>/todos/<sessionId>*.json. Because each seat
+// runs with its own CLAUDE_CONFIG_DIR, the file can land in the base dir OR in any seat profile
+// (its `todos` is meant to be symlinked to the base, but older seats predate that), so scan them all.
+function todoDirs() {
+  const dirs = new Set([TODOS_DIR]);
+  try { for (const s of (cfg.seats || [])) if (s.configDir) dirs.add(path.join(s.configDir, 'todos')); } catch {}
+  return [...dirs];
+}
 function readPlan(sessionId) {
   if (!sessionId) return null;
-  let file;
   try {
-    const names = fs.readdirSync(TODOS_DIR).filter(n => n.startsWith(sessionId) && n.endsWith('.json'));
-    if (!names.length) return null;
-    file = names.find(n => n.includes(`-agent-${sessionId}`)) || names.sort((a, b) => fs.statSync(path.join(TODOS_DIR, b)).mtimeMs - fs.statSync(path.join(TODOS_DIR, a)).mtimeMs)[0];
-    file = path.join(TODOS_DIR, file);
-    const mtime = fs.statSync(file).mtimeMs;
-    const hit = planCache.get(file);
-    if (hit && hit.mtime === mtime) return hit.plan;
-    const list = readJson(file, null);
+    let best = null; // prefer the session's own agent file, else the newest matching file across all dirs
+    for (const dir of todoDirs()) {
+      let names;
+      try { names = fs.readdirSync(dir); } catch { continue; }
+      for (const n of names) {
+        if (!n.startsWith(sessionId) || !n.endsWith('.json')) continue;
+        const f = path.join(dir, n);
+        let mt; try { mt = fs.statSync(f).mtimeMs; } catch { continue; }
+        const agent = n.includes(`-agent-${sessionId}`);
+        if (!best || (agent && !best.agent) || (agent === best.agent && mt > best.mtime)) best = { file: f, mtime: mt, agent };
+      }
+    }
+    if (!best) return null;
+    const hit = planCache.get(best.file);
+    if (hit && hit.mtime === best.mtime) return hit.plan;
+    const list = readJson(best.file, null);
     const items = Array.isArray(list) ? list.map(x => ({ text: x.content, state: x.status })) : []; // state: pending|in_progress|completed
     const plan = items.length ? { items, done: items.filter(i => i.state === 'completed').length, total: items.length } : null;
-    planCache.set(file, { mtime, plan });
+    planCache.set(best.file, { mtime: best.mtime, plan });
     return plan;
   } catch { return null; }
 }
