@@ -633,9 +633,10 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .tb-cards { display: flex; flex-direction: column; gap: 9px; min-height: 70px; border-radius: var(--r-s); transition: background 120ms ease; }
 .tb-cards.tb-over { background: color-mix(in srgb, var(--accent) 7%, transparent); outline: 1.5px dashed var(--line-strong); outline-offset: 2px; }
 .tb-empty { min-height: 44px; }
-.tb-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: var(--shadow); padding: 11px 12px; cursor: grab; }
+.tb-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: var(--shadow); padding: 11px 12px; cursor: grab; touch-action: none; transition: box-shadow 140ms ease, border-color 140ms ease; }
 .tb-card:hover { border-color: var(--line-strong); }
-.tb-card.tb-dragging { opacity: .5; cursor: grabbing; }
+.tb-card.tb-dragging { cursor: grabbing; border-color: var(--line-strong); box-shadow: 0 22px 54px rgba(0, 0, 0, .28); }
+.tb-ph { border: 1.5px dashed var(--line-strong); border-radius: var(--r-s); background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .tb-top { margin-bottom: 7px; }
 .tb-tag { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 3px 6px; }
 .tb-title { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; }
@@ -655,8 +656,10 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .tb-cost { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
 .tb-cost b { color: color-mix(in srgb, var(--ok) 65%, var(--text)); }
 .tb-sp { flex: 1; }
-.tb-chev { padding: 4px 7px; }
+.tb-chev { padding: 4px 7px; transition: transform 180ms ease; }
+.tb-expanded .tb-chev { transform: rotate(180deg); }
 .tb-detail { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.tb-detail[hidden] { display: none; }
 .tb-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .tb-row span { width: 46px; flex: none; }
 .tb-row .inp, .tb-row .sel { flex: 1; }

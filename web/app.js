@@ -641,6 +641,42 @@ function tbPlan(plan) {
   const rows = plan.items.map(i => { const st = i.state === 'completed' ? 'done' : (i.state === 'in_progress' ? 'active' : ''); return `<div class="tb-todo ${st}"><span class="tb-box">${i.state === 'completed' ? '✓' : ''}</span><span class="tb-tx">${esc(i.text)}</span></div>`; }).join('');
   return `<div class="tb-planbox"><div class="tb-plan-h"><span>Plan</span><span class="num">${plan.done}/${plan.total}</span></div>${rows}</div>`;
 }
+// Board motion (ported from the Depth mockup): rAF springs animate from the live value,
+// take the finger's release velocity, and are interruptible — no CSS transitions on moving cards.
+function tbReduce() { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } }
+function tbSpring2D(node, x0, y0, o, done) {
+  let x = x0, y = y0, vx = o.vx || 0, vy = o.vy || 0; const k = o.k || 440, c = o.c || 34; let last = performance.now(), raf;
+  node.style.willChange = 'transform'; node.style.transform = `translate(${x}px,${y}px)`;
+  const step = t => {
+    const dt = Math.min(0.05, (t - last) / 1000); last = t;
+    vx += (-k * x - c * vx) * dt; x += vx * dt; vy += (-k * y - c * vy) * dt; y += vy * dt;
+    node.style.transform = `translate(${x}px,${y}px)`;
+    if (Math.hypot(x, y) < 0.4 && Math.hypot(vx, vy) < 0.5) { node.style.transform = ''; node.style.willChange = ''; done && done(); return; }
+    raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+  return { stop() { cancelAnimationFrame(raf); node.style.willChange = ''; } };
+}
+function tbPulse(n) { if (!n || tbReduce()) return; try { n.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 440, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
+// FLIP: capture card positions, then after a rebuild glide every card from where it was.
+function tbCapture() { const m = new Map(); document.querySelectorAll('#content .tb-card').forEach(n => m.set(n.dataset.id, n.getBoundingClientRect())); return m; }
+function tbPlay(first) {
+  if (tbReduce()) return;
+  document.querySelectorAll('#content .tb-card').forEach(n => {
+    const a = n.getBoundingClientRect(), b = first.get(n.dataset.id);
+    if (b) { const dx = b.left - a.left, dy = b.top - a.top; if (dx || dy) tbSpring2D(n, dx, dy, { k: 380, c: 30 }); }
+    else { try { n.animate([{ opacity: 0, transform: 'scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
+  });
+}
+// Run a status-changing action, then reconcile with one rebuild and glide the cards into their new slots.
+async function tbMutate(fn) {
+  const first = tbCapture();
+  dirtyForms.add('tasks');              // freeze the board while the server catches up (poll renders bail)
+  try { await fn(); } catch {}
+  dirtyForms.delete('tasks');
+  await load();                         // authoritative rebuild
+  tbPlay(first);
+}
 function tbCard(t) {
   const live = t.live, running = live && live.alive, needs = live && live.needsYou;
   const cost = live && live.cost ? `<span class="tb-cost">$<b>${(live.cost.usd || 0).toFixed(2)}</b> · ${fmtTok(live.cost.tokens)}</span>` : '';
@@ -652,7 +688,7 @@ function tbCard(t) {
   const launch = actionable ? `<button class="btn sm primary" data-tact="launch" data-id="${t.id}">▶ Launch</button>` : '';
   const body = (live && live.plan) ? tbPlan(live.plan) : (t.desc ? `<div class="tb-desc">${esc(t.desc)}</div>` : '');
   const seat = t.seat ? `<span class="tb-av">${esc(t.seat.slice(0, 2))}</span>${esc(t.seat)}` : '<span class="muted">no seat</span>';
-  return `<article class="tb-card" draggable="true" data-id="${t.id}" data-status="${t.status}">
+  return `<article class="tb-card" data-id="${t.id}" data-status="${t.status}">
     <div class="tb-top"><span class="tb-tag">#${esc(t.project || '—')}</span></div>
     <div class="tb-title">${esc(t.title || 'Untitled')}</div>
     ${body}
@@ -682,43 +718,125 @@ function vTasks() {
   return `<datalist id="tbProjects">${projects.map(p => `<option value="${esc(p.cwd)}">`).join('')}</datalist><div class="tb-board">${cols}</div>`;
 }
 function wireTasks(el) {
+  const byId = id => (state?.tasks || []).find(t => t.id === id) || null;
+  const prevSib = n => { let p = n.previousElementSibling; while (p && !p.classList.contains('tb-card')) p = p.previousElementSibling; return p; };
+  const nextSib = n => { let p = n.nextElementSibling; while (p && !p.classList.contains('tb-card')) p = p.nextElementSibling; return p; };
+  const updateCounts = () => el.querySelectorAll('.tb-col').forEach(col => { const c = col.querySelector('.tb-colcount'); if (c) c.textContent = col.querySelectorAll('.tb-cards .tb-card').length; });
+
+  const toggleDetail = id => {
+    const d = el.querySelector(`[data-detail="${id}"]`); if (!d) return;
+    const card = el.querySelector(`.tb-card[data-id="${id}"]`), open = d.hidden;
+    d.hidden = !open; if (card) card.classList.toggle('tb-expanded', open);
+    if (open && !tbReduce()) { try { const h = d.scrollHeight; d.animate([{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
+  };
+
   el.querySelectorAll('[data-tact]').forEach(b => b.onclick = async ev => {
     ev.stopPropagation();
     const act = b.dataset.tact, id = b.dataset.id, cs = b.dataset.cs;
-    if (act === 'expand') { const d = el.querySelector(`[data-detail="${id}"]`); if (d) d.hidden = !d.hidden; return; }
+    if (act === 'expand') return toggleDetail(id);
+    if (act === 'launch') { tbPulse(el.querySelector(`.tb-card[data-id="${id}"]`)); return tbMutate(async () => { await post(`/api/tasks/${id}/launch`); toast('Launching — Claude is starting on it'); }); }
+    if (act === 'done') return tbMutate(() => post(`/api/tasks/${id}`, { status: 'done' }));
+    if (act === 'reopen') return tbMutate(() => post(`/api/tasks/${id}`, { status: 'ready' }));
+    if (act === 'delete') {
+      if (!confirm('Delete this task? This cannot be undone.')) return;
+      const card = el.querySelector(`.tb-card[data-id="${id}"]`);
+      if (card && !tbReduce()) { try { card.animate([{ opacity: 1 }, { opacity: 0, transform: 'scale(.96)' }], { duration: 160, easing: 'ease-in' }); } catch {} }
+      return tbMutate(() => post(`/api/tasks/${id}/delete`));
+    }
     try {
-      if (act === 'launch') { await post(`/api/tasks/${id}/launch`); toast('Launching — Claude is starting on it'); }
-      else if (act === 'attach') { await openSession(cs, 'browser'); }
+      if (act === 'attach') await openSession(cs, 'browser');
       else if (act === 'stop') { await post(`/api/sessions/${cs}/stop`); toast('Session stopped'); }
-      else if (act === 'done') { await post(`/api/tasks/${id}`, { status: 'done' }); }
-      else if (act === 'reopen') { await post(`/api/tasks/${id}`, { status: 'ready' }); }
-      else if (act === 'delete') { if (confirm('Delete this task? This cannot be undone.')) await post(`/api/tasks/${id}/delete`); }
     } catch {}
     setTimeout(load, 250);
   });
+
   el.querySelectorAll('[data-field]').forEach(f => {
-    const commit = async () => { const body = {}; body[f.dataset.field] = f.type === 'checkbox' ? f.checked : f.value; try { await post(`/api/tasks/${f.dataset.id}`, body); } catch {} };
-    if (f.type === 'checkbox' || f.tagName === 'SELECT') f.onchange = commit; else f.onchange = commit;
+    f.onchange = async () => { const body = {}; body[f.dataset.field] = f.type === 'checkbox' ? f.checked : f.value; try { await post(`/api/tasks/${f.dataset.id}`, body); } catch {} };
   });
+
   const add = el.querySelector('#tbAdd');
-  if (add) add.onsubmit = async ev => {
+  if (add) add.onsubmit = ev => {
     ev.preventDefault();
     const title = add.querySelector('[name=ttitle]').value.trim(); if (!title) return;
     const cwd = add.querySelector('[name=tcwd]').value.trim() || null;
     const project = cwd ? cwd.replace(/\/+$/, '').split('/').pop() : null;
-    try { await post('/api/tasks', { title, cwd, project }); } catch {}
-    setTimeout(load, 200);
+    tbMutate(() => post('/api/tasks', { title, cwd, project }));
   };
-  let dragId = null;
-  el.querySelectorAll('.tb-card').forEach(c => {
-    c.addEventListener('dragstart', e => { dragId = c.dataset.id; c.classList.add('tb-dragging'); try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.dataset.id); } catch {} });
-    c.addEventListener('dragend', () => { dragId = null; c.classList.remove('tb-dragging'); el.querySelectorAll('.tb-cards').forEach(z => z.classList.remove('tb-over')); });
-  });
-  el.querySelectorAll('.tb-cards').forEach(z => {
-    z.addEventListener('dragover', e => { e.preventDefault(); z.classList.add('tb-over'); });
-    z.addEventListener('dragleave', () => z.classList.remove('tb-over'));
-    z.addEventListener('drop', async e => { e.preventDefault(); z.classList.remove('tb-over'); const id = dragId || (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return null; } })(); if (!id) return; try { await post(`/api/tasks/${id}`, { status: z.dataset.drop, order: Date.now() }); } catch {} setTimeout(load, 150); });
-  });
+
+  // --- spring drag: 1:1 tracking, live reflow under the finger, velocity handoff on drop ---
+  let drag = null;
+  const phBefore = ph => { let n = ph.nextElementSibling; while (n && !n.classList.contains('tb-card')) n = n.nextElementSibling; return n || null; };
+  const insertPh = (list, before) => {
+    if (before) return list.insertBefore(drag.ph, before);
+    const anchor = list.querySelector('.tb-add') || list.querySelector('.tb-empty');
+    if (anchor) list.insertBefore(drag.ph, anchor); else list.appendChild(drag.ph);
+  };
+  const transY = n => { const m = /translate\([^,]+,\s*(-?[\d.]+)px\)/.exec(n.style.transform || ''); return m ? parseFloat(m[1]) : 0; };
+  const computeTarget = (x, y) => {
+    const lists = Array.from(el.querySelectorAll('.tb-cards')); let list = null;
+    for (const l of lists) { const cr = l.closest('.tb-col').getBoundingClientRect(); if (x >= cr.left && x <= cr.right) { list = l; break; } }
+    if (!list) { let best = Infinity; for (const l of lists) { const r = l.getBoundingClientRect(), d = Math.abs((r.left + r.right) / 2 - x); if (d < best) { best = d; list = l; } } }
+    if (!list) return null;
+    // Measure each sibling at its RESTING position (rect minus its live spring offset), so a card
+    // that is still gliding from a previous reflow doesn't skew — or empty out — the insertion test.
+    const cards = Array.from(list.querySelectorAll('.tb-card')).filter(n => n !== drag.el);
+    let before = null;
+    for (const c of cards) { const r = c.getBoundingClientRect(), restTop = r.top - transY(c); if (y < restTop + r.height / 2) { before = c; break; } }
+    return { list, before };
+  };
+  const reflowTo = (list, before) => {
+    const oldList = drag.ph.parentNode, lists = (oldList && oldList !== list) ? [oldList, list] : [list], nodes = [];
+    lists.forEach(l => l.querySelectorAll('.tb-card').forEach(n => { if (n !== drag.el) nodes.push(n); }));
+    const first = nodes.map(n => n.getBoundingClientRect());
+    nodes.forEach(n => { if (n._spring) { n._spring.stop(); n._spring = null; } n.style.transform = ''; });
+    insertPh(list, before);
+    if (tbReduce()) return;
+    const last = nodes.map(n => n.getBoundingClientRect());
+    nodes.forEach((n, i) => { const dx = first[i].left - last[i].left, dy = first[i].top - last[i].top; if (dx || dy) n._spring = tbSpring2D(n, dx, dy, { k: 520, c: 36 }, () => { n._spring = null; }); });
+  };
+  const begin = () => {
+    const card = drag.el, ph = document.createElement('div'); ph.className = 'tb-ph'; ph.style.height = drag.h + 'px'; drag.ph = ph; card.after(ph);
+    if (!tbReduce()) { try { ph.animate([{ height: '0px', opacity: 0 }, { height: drag.h + 'px', opacity: 1 }], { duration: 200, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
+    card.classList.add('tb-dragging');
+    Object.assign(card.style, { position: 'fixed', zIndex: '1000', width: drag.w + 'px', margin: '0', pointerEvents: 'none', left: (drag.sx - drag.offX) + 'px', top: (drag.sy - drag.offY) + 'px', transform: 'scale(1.03)' });
+    dirtyForms.add('tasks');            // hold the board still for the whole gesture
+  };
+  const onMove = e => {
+    if (!drag) return;
+    if (!drag.moved) { if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return; drag.moved = true; begin(); drag.lastX = e.clientX; }
+    const tt = Math.max(-4, Math.min(4, (e.clientX - (drag.lastX != null ? drag.lastX : e.clientX)) * 0.7)); drag.lastX = e.clientX;
+    drag.tilt += (tt - drag.tilt) * 0.35;
+    drag.el.style.left = (e.clientX - drag.offX) + 'px'; drag.el.style.top = (e.clientY - drag.offY) + 'px'; drag.el.style.transform = `scale(1.03) rotate(${drag.tilt.toFixed(2)}deg)`;
+    drag.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (drag.hist.length > 6) drag.hist.shift();
+    const tgt = computeTarget(e.clientX, e.clientY);
+    if (tgt && !(drag.ph.parentNode === tgt.list && phBefore(drag.ph) === tgt.before)) reflowTo(tgt.list, tgt.before);
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    if (!drag) return;
+    if (!drag.moved) { const id = drag.t; drag = null; return toggleDetail(id); }
+    const card = drag.el, ph = drag.ph, h = drag.hist, id = card.dataset.id; let vx = 0, vy = 0;
+    if (h.length >= 2) { const a = h[h.length - 1], b = h[0], dt = Math.max(16, a.t - b.t); vx = (a.x - b.x) / dt * 1000; vy = (a.y - b.y) / dt * 1000; }
+    card.style.transform = ''; const relRect = card.getBoundingClientRect();
+    card.classList.remove('tb-dragging'); card.removeAttribute('style');
+    if (ph && ph.parentNode) ph.replaceWith(card);
+    const list = card.closest('.tb-cards'), status = list ? list.dataset.drop : (byId(id)?.status || 'backlog');
+    const p = prevSib(card), n = nextSib(card), po = p && byId(p.dataset.id) ? byId(p.dataset.id).order : null, no = n && byId(n.dataset.id) ? byId(n.dataset.id).order : null;
+    const order = (po != null && no != null) ? (po + no) / 2 : (po != null ? po + 1 : (no != null ? no - 1 : Date.now()));
+    card.dataset.status = status; updateCounts();
+    const slot = card.getBoundingClientRect(), dx = relRect.left - slot.left, dy = relRect.top - slot.top;
+    const finalize = async () => { try { await post(`/api/tasks/${id}`, { status, order }); } catch {} dirtyForms.delete('tasks'); load(); };
+    if (tbReduce()) finalize(); else tbSpring2D(card, dx, dy, { vx, vy, k: 440, c: 34 }, finalize);
+    drag = null;
+  };
+  el.querySelectorAll('.tb-card').forEach(card => card.addEventListener('pointerdown', e => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest('button, a, input, select, textarea, label, .tb-detail')) return;
+    const r = card.getBoundingClientRect();
+    drag = { t: card.dataset.id, el: card, offX: e.clientX - r.left, offY: e.clientY - r.top, w: r.width, h: r.height, sx: e.clientX, sy: e.clientY, moved: false, ph: null, tilt: 0, lastX: null, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] };
+    try { card.setPointerCapture(e.pointerId); } catch {}
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp, { once: true });
+  }));
 }
 function render() {
   if (!state) return;
