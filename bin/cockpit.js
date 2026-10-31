@@ -215,6 +215,7 @@ async function cmdAttach(args) {
 async function cmdStop(args) {
   const cfg = loadConfig(); const port = portOf(cfg);
   const ref = args.shift(); if (!ref) fail('usage: cockpit stop <session|name>');
+  if (!(await health(port))) fail('daemon is not running');
   const r = await request(port, 'POST', `/api/sessions/${encodeURIComponent(ref)}/stop`, {});
   if (r.status !== 200) fail(r.body?.error || 'stop failed');
   out('stopped');
@@ -225,7 +226,7 @@ async function cmdStatusline(args) {
   const cfg = loadConfig(); const port = portOf(cfg);
   if (sub === 'install' || sub === 'uninstall') {
     let n = 0;
-    for (const seat of cfg.seats) { const ok = sub === 'install' ? installStatusLine(seat, process.execPath, PKG_CLI) : uninstallStatusLine(seat); if (ok) n++; out(`${sub === 'install' ? 'installed' : 'removed'} status line for ${seat.name}`); }
+    for (const seat of cfg.seats) { const ok = sub === 'install' ? installStatusLine(seat, process.execPath, PKG_CLI) : uninstallStatusLine(seat); if (ok) n++; out(ok ? `${sub === 'install' ? 'installed' : 'removed'} status line for ${seat.name}` : dim(`skipped ${seat.name} (left its existing status line untouched)`)); }
     out(dim(`${sub}ed on ${n} seat(s). It shows the seat, 5-hour headroom and burn inside Claude Code's prompt.`));
     return;
   }
@@ -299,7 +300,7 @@ async function cmdDaemon(args) {
   if (sub === 'start') { out((await ensureDaemon(port)) ? `daemon up at http://127.0.0.1:${port}` : `failed; see ${LOG_FILE}`); return; }
   if (sub === 'stop') { out((await stopDaemon(port)) ? 'daemon stopped' : 'daemon was not running'); return; }
   if (sub === 'status') { const h = await health(port); out(h ? `up · pid ${h.pid} · port ${port} · version ${h.version}${launchAgentInstalled() ? ' · launchd agent installed' : ''}` : `down (port ${port})`); return; }
-  if (sub === 'logs') { const n = Number(flag(args, '-n') || 60); const lines = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8').trim().split('\n') : []; out(lines.slice(-n).join('\n')); return; }
+  if (sub === 'logs') { const na = Number(flag(args, '-n')); const n = na > 0 ? na : 60; const lines = fs.existsSync(LOG_FILE) ? fs.readFileSync(LOG_FILE, 'utf8').trim().split('\n') : []; out(lines.slice(-n).join('\n')); return; }
   if (sub === 'install') { const p = await installLaunchAgent(port); out(`launchd agent installed (${p}); the daemon now starts at login and restarts if it dies.`); return; }
   if (sub === 'uninstall') { await uninstallLaunchAgent(port); out(`launchd agent removed (${PLIST}).`); return; }
   fail('usage: cockpit daemon <start|stop|status|logs|install|uninstall>');
@@ -315,8 +316,11 @@ async function cmdConfig(args) {
     if (!key || raw === undefined) fail('usage: cockpit config set <handoff.mode|handoff.thresholdPct|handoff.minGainPct|handoff.hardPct|pollSec|notifications|port> <value>');
     const val = /^-?\d+$/.test(raw) ? Number(raw) : raw === 'true' ? true : raw === 'false' ? false : raw;
     if (key === 'handoff.mode' && !['auto', 'ask', 'off'].includes(val)) fail('handoff.mode must be auto, ask or off');
+    const NUM_KEYS = ['handoff.thresholdPct', 'handoff.minGainPct', 'handoff.hardPct', 'pollSec', 'port', 'autoCheckMin', 'budgetMonthlyUSD'];
+    if (NUM_KEYS.includes(key) && typeof val !== 'number') fail(`${key} must be a number`);
     const [a, b] = key.split('.');
-    if (b) { if (!cfg[a] || typeof cfg[a] !== 'object') fail(`unknown key ${key}`); cfg[a][b] = val; } else cfg[a] = val;
+    if (b) { if (!cfg[a] || typeof cfg[a] !== 'object') fail(`unknown key ${key}`); cfg[a][b] = val; }
+    else { if (!(a in cfg)) fail(`unknown key ${key}`); cfg[a] = val; }
     saveConfig(cfg);
     await notifyDaemonReload(port);
     out(`${key} = ${JSON.stringify(val)}`);
@@ -353,7 +357,7 @@ function help() {
   cockpit usage [seat]                    refresh the 5-hour reading of every seat now (opens Claude briefly, sends no prompt)
   cockpit statusline install|uninstall    show seat + 5-hour headroom inside Claude Code's prompt
   cockpit handoff [session] [--to seat]   move a session to another seat now (or when its current turn ends)
-  cockpit config get|set <key> <value>    handoff.mode auto|ask|off, handoff.thresholdPct, pollSec, notifications
+  cockpit config get|set <key> <value>    handoff.mode auto|ask|off, handoff.thresholdPct, handoff.minGainPct, handoff.hardPct, pollSec, notifications, port
   cockpit daemon start|stop|status|logs|install|uninstall
   cockpit hooks status|install|uninstall
   cockpit open                            open the dashboard`);
@@ -379,7 +383,7 @@ function help() {
       case 'tui': return await cmdTui();
       case undefined: return process.stdout.isTTY ? await cmdTui() : help();
       case 'help': case '--help': case '-h': return help();
-      default: fail(`unknown command "${cmd}"\n`), help();
+      default: { help(); return fail(`unknown command "${cmd}"`); }
     }
   } catch (e) { fail(e.message); }
 })();
