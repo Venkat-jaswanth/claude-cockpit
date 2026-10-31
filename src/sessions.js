@@ -97,7 +97,7 @@ export class SessionManager {
     const rt = this.rt.get(s.cs);
     if (rt) rt.proc = null;
     s.alive = false; s.pid = null;
-    if (s.handoff?.inProgress && s.handoff.phase === 'exiting') {
+    if (!s.stopping && s.handoff?.inProgress && s.handoff.phase === 'exiting') {
       const h = s.handoff;
       h.phase = 'resuming';
       s.seat = h.to; s.resume = true;
@@ -159,6 +159,7 @@ export class SessionManager {
       if (!s.alive) ws.send(JSON.stringify({ t: 'exit', code: s.exitCode ?? null }));
     } catch {}
     ws.on('close', () => rt.viewers.delete(ws));
+    ws.on('error', () => { rt.viewers.delete(ws); try { ws.close(); } catch {} }); // a dropped viewer must not throw past us
     return true;
   }
   broadcast(rt, msg) {

@@ -8,7 +8,14 @@ import path from 'node:path';
 const FILE = path.join(HOME, 'marks.json');
 let store = null;
 
-function load() { if (!store) store = readJson(FILE, { sessions: {} }) || { sessions: {} }; if (!store.sessions) store.sessions = {}; return store; }
+function load() {
+  // A marks.json that parses to a non-object (a primitive, or an array) must not crash the library
+  // scan or silently drop marks on the next save: coerce anything unexpected to a fresh shape.
+  if (!store) store = readJson(FILE, null);
+  if (!store || typeof store !== 'object' || Array.isArray(store)) store = { sessions: {} };
+  if (!store.sessions || typeof store.sessions !== 'object' || Array.isArray(store.sessions)) store.sessions = {};
+  return store;
+}
 let timer = null;
 function persist() { if (timer) return; timer = setTimeout(() => { timer = null; try { writeJson(FILE, store); } catch {} }, 300); }
 

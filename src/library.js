@@ -104,7 +104,7 @@ export function scanLibrary({ limit = 500 } = {}) {
       if (rec) out.push(rec);
     }
   }
-  const marks = allMarks();
+  let marks = {}; try { marks = allMarks() || {}; } catch {} // a bad marks file degrades to "no marks", never a 500
   for (const r of out) {
     const root = gitRoot(r.cwd);
     const m = marks[r.sessionId] || null;

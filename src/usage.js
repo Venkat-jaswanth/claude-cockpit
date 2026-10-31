@@ -30,6 +30,7 @@ export function readUsage(seat, now = Date.now()) {
   if (sess && typeof sess.percent === 'number') {
     fh.pct = sess.percent; fh.resetsAt = sess.resets_at || fh.resetsAt; fh.severity = sess.severity || null;
   }
+  if (fh.resetsAt && Number.isNaN(Date.parse(fh.resetsAt))) fh.resetsAt = null; // never let an unparseable timestamp render as "NaNm"
   if (fh.resetsAt && fh.pct !== null && new Date(fh.resetsAt).getTime() < now) {
     // The window Claude Code last saw has already rolled over; the seat is fresh again.
     fh = { ...fh, pct: 0, assumedReset: true };

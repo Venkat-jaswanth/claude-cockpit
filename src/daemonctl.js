@@ -21,6 +21,7 @@ export async function ensureDaemon(port) {
     env: { ...process.env, COCKPIT_PORT: String(port) },
   });
   child.unref();
+  try { fs.closeSync(out); } catch {} // the child inherited the fd; the parent does not need it
   for (let i = 0; i < 30; i++) { await sleep(200); if (await health(port)) return true; }
   return false;
 }
@@ -37,26 +38,28 @@ export async function stopDaemon(port) {
 export function plistXml(port) {
   const claudeDir = (() => { const r = spawnSync('sh', ['-lc', 'command -v claude'], { encoding: 'utf8' }); return r.stdout ? path.dirname(r.stdout.trim()) : ''; })();
   const PATH = [claudeDir, path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].filter(Boolean).join(':');
+  // XML-escape every interpolated value so a path containing & < or > cannot produce a malformed plist.
+  const xe = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${LABEL}</string>
+  <key>Label</key><string>${xe(LABEL)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${process.execPath}</string>
-    <string>${DAEMON_JS}</string>
+    <string>${xe(process.execPath)}</string>
+    <string>${xe(DAEMON_JS)}</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>${PATH}</string>
-    <key>COCKPIT_PORT</key><string>${port}</string>
-    <key>HOME</key><string>${os.homedir()}</string>
+    <key>PATH</key><string>${xe(PATH)}</string>
+    <key>COCKPIT_PORT</key><string>${xe(port)}</string>
+    <key>HOME</key><string>${xe(os.homedir())}</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${LOG_FILE}</string>
-  <key>StandardErrorPath</key><string>${LOG_FILE}</string>
+  <key>StandardOutPath</key><string>${xe(LOG_FILE)}</string>
+  <key>StandardErrorPath</key><string>${xe(LOG_FILE)}</string>
 </dict>
 </plist>
 `;

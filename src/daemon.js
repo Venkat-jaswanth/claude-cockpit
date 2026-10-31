@@ -199,11 +199,11 @@ function trendFor(name) { return (pctHistory.get(name) || []).slice(-16).map(p =
 function usageSummary() {
   const days = Object.keys(ledger.days).sort();
   const today = dayKey(); const weekStart = dayKey(Date.now() - 6 * 86400e3);
-  const sum = keep => { const total = EMPTY(); const seats = {}; for (const d of days) { if (!keep(d)) continue; for (const [seat, v] of Object.entries(ledger.days[d].seats || {})) { add(total, v); add(seats[seat] ||= EMPTY(), v); } } return { total, seats }; };
+  const sum = keep => { const total = EMPTY(); const seats = {}; for (const d of days) { if (!keep(d)) continue; for (const [seat, v] of Object.entries(ledger.days[d]?.seats || {})) { add(total, v); add(seats[seat] ||= EMPTY(), v); } } return { total, seats }; };
   const byDay = [];
   for (let i = 13; i >= 0; i--) { const k = dayKey(Date.now() - i * 86400e3); const t = EMPTY(); for (const v of Object.values(ledger.days[k]?.seats || {})) add(t, v); byDay.push({ day: k, ...t }); }
   const sessionsMap = {};
-  for (const d of days) { if (d < weekStart) continue; for (const [cs, v] of Object.entries(ledger.days[d].sessions || {})) { const x = sessionsMap[cs] ||= { ...EMPTY(), cs, name: v.name, cwd: v.cwd, sessionId: v.sessionId, seat: v.seat }; add(x, v); x.name = v.name || x.name; x.seat = v.seat || x.seat; } }
+  for (const d of days) { if (d < weekStart) continue; for (const [cs, v] of Object.entries(ledger.days[d]?.sessions || {})) { const x = sessionsMap[cs] ||= { ...EMPTY(), cs, name: v.name, cwd: v.cwd, sessionId: v.sessionId, seat: v.seat }; add(x, v); x.name = v.name || x.name; x.seat = v.seat || x.seat; } }
   const topSessions = Object.values(sessionsMap).sort((a, b) => totalTokens(b) - totalTokens(a)).slice(0, 10);
   const monthPrefix = today.slice(0, 7);
   const month = sum(d => d.startsWith(monthPrefix));
@@ -414,7 +414,10 @@ function signalLimit(s, source, text) {
 }
 
 function handleHook(ev, q, body) {
-  const cs = q.get('cs') || '';
+  const cs = (q.get('cs') || '').slice(0, 128);
+  // Reject a malformed or forged session id at the boundary, so it can never reach the
+  // "open in Terminal" AppleScript builder (a cs with a quote or backslash could break out of it).
+  if (cs && !/^[A-Za-z0-9:_-]+$/.test(cs)) return;
   const cfgDir = q.get('cfg') || '';
   let s;
   if (cs) {
@@ -576,7 +579,10 @@ function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, 
   if (worktreePath) { s.worktree = worktreePath; s.worktreeRepo = worktreeRepo; }
   if (proj) s.projectId = proj.id;
   if (initialPrompt) s.continuation = String(initialPrompt);
-  manager.spawn(s, seat, { cols, rows });
+  // If the PTY fails to start, do not leave a half-created session stuck in "starting" with an
+  // orphaned git worktree on disk.
+  try { manager.spawn(s, seat, { cols, rows }); }
+  catch (e) { try { removeWorktree(s); } catch {} sessions.delete(s.cs); throw e; }
   addEvent('start', `${label(s)}: ${resumeId ? 'resuming' : 'starting'} on ${seat.name}`, { cs: s.cs });
   schedulePersist();
   return { cs: s.cs, sessionId: s.sessionId, seat: { name: seat.name, kind: seat.kind, configDir: seat.configDir } };
@@ -591,6 +597,8 @@ function startLoginSession(seat) {
 
 function shq(str) { return `'${String(str).replace(/'/g, "'\\''")}'`; }
 function openInTerminalApp(cs) {
+  // Defense in depth: only ever interpolate a known-safe session id into the AppleScript below.
+  if (!/^[A-Za-z0-9:_.-]+$/.test(cs)) return;
   const node = shq(process.execPath), cli = shq(path.join(PKG_ROOT, 'bin', 'cockpit.js'));
   // Run attach directly (not via exec) so that if it exits with an error the window stays
   // open with the message instead of vanishing. On a clean end the window closes.
@@ -625,9 +633,10 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     let buf = '';
     req.setEncoding('utf8');
-    req.on('data', d => { buf += d; if (buf.length > 2e6) req.destroy(); });
+    req.on('data', d => { buf += d; if (buf.length > 2e6) { req.destroy(); resolve(null); } });
     req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : null); } catch { resolve(null); } });
     req.on('error', reject);
+    req.on('close', () => resolve(null)); // settle even if the socket is torn down (resolve is idempotent)
   });
 }
 // Everything is bound to 127.0.0.1, but a web page from any origin can still reach it,
@@ -746,7 +755,8 @@ const server = http.createServer(async (req, res) => {
           if (!/^[A-Za-z0-9._-]+$/.test(String(id))) continue;            // guard the path
           if ([...sessions.values()].some(x => x.sessionId === id && x.alive)) continue; // never delete a live one
           const rec = findStored(String(id));
-          if (rec && rec.file && path.resolve(rec.file).startsWith(path.resolve(BASE_CLAUDE_DIR))) {
+          const baseDir = path.resolve(BASE_CLAUDE_DIR), recFile = rec && rec.file ? path.resolve(rec.file) : null;
+          if (recFile && (recFile === baseDir || recFile.startsWith(baseDir + path.sep))) {
             try { fs.rmSync(rec.file, { force: true }); const side = rec.file.replace(/\.jsonl$/, ''); if (fs.existsSync(side) && fs.statSync(side).isDirectory()) fs.rmSync(side, { recursive: true, force: true }); setMark(String(id), {}); deleted++; } catch (e) { log('warn', `delete ${id}: ${e.message}`); }
           }
         }
@@ -774,6 +784,7 @@ const server = http.createServer(async (req, res) => {
         if (action === 'stop') { s.stopping = true; const ok = await manager.kill(s); if (!ok && s.status !== 'ended') { s.status = 'ended'; s.alive = false; } addEvent('stop', `${label(s)}: stopped`, { cs: s.cs }); schedulePersist(); return json(res, { ok: true }); }
         if (action === 'restore') {
           if (s.alive) return json(res, { error: 'already running' }, 400);
+          if (s.handoff?.inProgress) return json(res, { error: 'a handoff is in progress; try again in a moment' }, 409);
           if (s.kind !== 'claude') return json(res, { error: 'only Claude sessions can be restored' }, 400);
           const live = liveWrapperFor(s.sessionId); if (live && live.cs !== s.cs) return json(res, { error: `this conversation is already running as ${live.name || live.cs}; open that instead`, cs: live.cs }, 409);
           cfg = loadConfig();
@@ -784,7 +795,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, { ok: true, cs: s.cs, seat: seat.name });
         }
         if (action === 'open-terminal') { openInTerminalApp(s.cs); return json(res, { ok: true }); }
-        if (action === 'forget') { if (s.alive) return json(res, { error: 'still running' }, 400); removeWorktree(s); manager.forget(s.cs); sessions.delete(s.cs); schedulePersist(); return json(res, { ok: true }); }
+        if (action === 'forget') { if (s.alive) return json(res, { error: 'still running' }, 400); if (s.handoff?.inProgress) return json(res, { error: 'a handoff is in progress; try again in a moment' }, 409); removeWorktree(s); manager.forget(s.cs); sessions.delete(s.cs); schedulePersist(); return json(res, { ok: true }); }
         if (action === 'rename') { s.name = String(body.name || '').slice(0, 80) || null; manager.broadcastInfo(s); schedulePersist(); return json(res, { ok: true }); }
       }
       if (p === '/api/seats') {
@@ -816,16 +827,16 @@ const server = http.createServer(async (req, res) => {
           if (activeSessionsOn(seat.name)) return json(res, { error: 'stop or hand off its running sessions first' }, 400);
           cfg.seats = cfg.seats.filter(x => x.name !== seat.name); saveConfig(cfg); cfg = loadConfig(); refreshUsage();
           if (seat.kind === 'base') uninstallHooks(seat);
-          else if (body.purge && seat.configDir.startsWith(PROFILES_DIR)) fs.rmSync(seat.configDir, { recursive: true, force: true });
+          else if (body.purge && (path.resolve(seat.configDir) + path.sep).startsWith(path.resolve(PROFILES_DIR) + path.sep)) fs.rmSync(seat.configDir, { recursive: true, force: true });
           addEvent('seat', `seat ${seat.name} removed`);
           return json(res, { ok: true });
         }
       }
       if (p === '/api/config') {
         cfg = loadConfig();
-        if (body.handoff) cfg.handoff = { ...cfg.handoff, ...body.handoff };
+        if (body.handoff) { const h = { ...cfg.handoff, ...body.handoff }; for (const k of ['thresholdPct', 'minGainPct', 'hardPct']) { const n = Number(h[k]); h[k] = Number.isFinite(n) ? n : cfg.handoff[k]; } cfg.handoff = h; }
         if (typeof body.notifications === 'boolean') cfg.notifications = body.notifications;
-        if (body.pollSec) cfg.pollSec = Math.max(10, Number(body.pollSec));
+        if (body.pollSec !== undefined) { const ps = Number(body.pollSec); if (Number.isFinite(ps)) cfg.pollSec = Math.max(10, ps); }
         if (body.terminalApp) cfg.terminalApp = body.terminalApp === 'iTerm' ? 'iTerm' : 'Terminal';
         if (body.autoCheckMin !== undefined) cfg.autoCheckMin = Math.max(0, Number(body.autoCheckMin) || 0);
         if (typeof body.armModel === 'string' && body.armModel.trim()) cfg.armModel = body.armModel.trim().slice(0, 40);
@@ -852,6 +863,7 @@ server.on('upgrade', (req, socket, head) => {
   const s = m && allowed(req) ? findSession(decodeURIComponent(m[1])) : null;
   if (!s || !manager.has(s.cs)) { socket.write('HTTP/1.1 404 Not Found\r\n\r\n'); socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, ws => {
+    ws.on('error', () => { try { ws.close(); } catch {} }); // a routine client disconnect should not reach uncaughtException
     manager.attach(s, ws, Number(url.searchParams.get('cols')), Number(url.searchParams.get('rows')));
     ws.on('message', raw => {
       let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
