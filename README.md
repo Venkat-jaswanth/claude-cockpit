@@ -80,7 +80,7 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 | **Isolated seats** | One `CLAUDE_CONFIG_DIR` per account, each with its own credentials. Projects, memory, plugins, skills and history are shared through symlinks, so every seat sees the same work. |
 | **Usage without tokens** | Reads each account's cached 5-hour and weekly rate-limit status straight from disk. No OAuth tokens, no Keychain, no network calls. |
 | **Burn-rate &amp; ETA** | Per-seat burn rate (%/hour) and time-to-full, so you know which seat to reach for next. |
-| **Arm the 5-hour window** | Kick off a seat's window at roughly zero cost with a cheap model, one seat or every idle seat at once. |
+| **Arm the 5-hour window** | Kick off a seat's window at roughly zero cost with a cheap model, one seat or every seat at once. |
 | **Opt-in handoff** | When a seat runs low, move a running session to a fresher one between turns and carry on. Ships **off by default**. |
 
 ### Spend &amp; polish
@@ -194,9 +194,9 @@ cockpit resume <id or title>         # resume any stored session, on the best se
 cockpit attach [name]                # re-enter a running session; Ctrl-] detaches
 cockpit handoff [name] --to alex     # move a session now, or after its current turn
 cockpit status                       # seats, usage, sessions
-cockpit usage [seat]                 # refresh the 5-hour reading of idle seats now
+cockpit usage [seat]                 # refresh the 5-hour reading of every seat now (or just one)
 cockpit seat add <name>              # log another account in as a seat
-cockpit config set handoff.mode ask  # enable handoff (see the note below)
+cockpit config set handoff.mode ask  # recommend a handoff when a seat runs low; you confirm it (see the note below)
 ```
 
 Inside Claude Code nothing changes: same keys, same `/commands`, same TUI. A handoff shows

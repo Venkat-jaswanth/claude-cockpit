@@ -9,10 +9,11 @@ are welcome, especially **platform ports** (Linux, Windows) and dashboard polish
 git clone https://github.com/Venkat-jaswanth/claude-cockpit
 cd claude-cockpit
 npm install
-npm test            # runs the full end-to-end suite, no real Claude account needed
+npm test            # runs a fast unit suite then the full end-to-end suite, no real Claude account needed
 ```
 
-The test suite (`test/e2e.js`) drives the **real** CLI, daemon, hooks, PTY sessions,
+`npm test` runs a fast unit suite (`test/unit.js`) first, then the end-to-end suite
+(`test/e2e.js`), which drives the **real** CLI, daemon, hooks, PTY sessions,
 WebSocket attach and HTTP API against a fake Claude binary (`test/fake-claude.js`). It runs
 in a throwaway `COCKPIT_HOME` on a separate port, so it never touches your real
 `~/.claude-cockpit` state or a running daemon. Please keep it green and add checks for new
