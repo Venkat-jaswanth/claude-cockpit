@@ -25,7 +25,7 @@ function projOf(s) { const cwd = s.cwd || ''; if (/scratch-workspaces/.test(cwd)
 const pctColor = p => p == null ? 'gray' : p >= 85 ? 'red' : p >= 60 ? 'yellow' : 'green';
 const dotColor = s => s.status === 'busy' ? ACCENT : s.status === 'idle' ? 'green' : s.status === 'lost' || s.status === 'crashed' ? 'red' : 'yellow';
 function ago(ts) { if (!ts) return ''; const m = Math.round((Date.now() - ts) / 60000); if (m < 1) return 'now'; if (m < 60) return m + 'm'; const h = Math.floor(m / 60); return h < 24 ? h + 'h' : Math.floor(h / 24) + 'd'; }
-function resetsIn(iso) { if (!iso) return ''; const ms = new Date(iso).getTime() - Date.now(); if (ms <= 0) return 'reset'; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h${m % 60}m` : `${m}m`; }
+function resetsIn(iso) { if (!iso) return ''; const t = new Date(iso).getTime(); if (Number.isNaN(t)) return ''; const ms = t - Date.now(); if (ms <= 0) return 'reset'; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}h${m % 60}m` : `${m}m`; }
 
 const shownSessions = st => (st?.sessions || []).filter(s => s.kind === 'claude' && s.managed && (s.alive || s.status === 'lost'));
 function group(sessions, filter) {

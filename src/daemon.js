@@ -61,6 +61,8 @@ const seenIds = new Map();
 let ledgerTimer = null;
 function scheduleLedgerPersist() { if (ledgerTimer) return; ledgerTimer = setTimeout(() => { ledgerTimer = null; try { writeJson(LEDGER_FILE, ledger); } catch (e) { log('warn', `ledger persist failed: ${e.message}`); } }, 500); }
 function dayKey(ts = Date.now()) { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+// Step back whole calendar days (not fixed 24h spans) so a DST transition cannot land on the wrong date.
+function dayKeyBack(n, base = Date.now()) { const d = new Date(base); d.setDate(d.getDate() - n); return dayKey(d.getTime()); }
 function initTokenTracking(s) {
   let size = 0; try { size = fs.statSync(s.transcriptPath).size; } catch {}
   s.tok = { file: s.transcriptPath, offset: size, costSeen: lastCostState(s.transcriptPath) ?? 0 };
@@ -198,10 +200,10 @@ function trendFor(name) { return (pctHistory.get(name) || []).slice(-16).map(p =
 
 function usageSummary() {
   const days = Object.keys(ledger.days).sort();
-  const today = dayKey(); const weekStart = dayKey(Date.now() - 6 * 86400e3);
+  const today = dayKey(); const weekStart = dayKeyBack(6);
   const sum = keep => { const total = EMPTY(); const seats = {}; for (const d of days) { if (!keep(d)) continue; for (const [seat, v] of Object.entries(ledger.days[d]?.seats || {})) { add(total, v); add(seats[seat] ||= EMPTY(), v); } } return { total, seats }; };
   const byDay = [];
-  for (let i = 13; i >= 0; i--) { const k = dayKey(Date.now() - i * 86400e3); const t = EMPTY(); for (const v of Object.values(ledger.days[k]?.seats || {})) add(t, v); byDay.push({ day: k, ...t }); }
+  for (let i = 13; i >= 0; i--) { const k = dayKeyBack(i); const t = EMPTY(); for (const v of Object.values(ledger.days[k]?.seats || {})) add(t, v); byDay.push({ day: k, ...t }); }
   const sessionsMap = {};
   for (const d of days) { if (d < weekStart) continue; for (const [cs, v] of Object.entries(ledger.days[d]?.sessions || {})) { const x = sessionsMap[cs] ||= { ...EMPTY(), cs, name: v.name, cwd: v.cwd, sessionId: v.sessionId, seat: v.seat }; add(x, v); x.name = v.name || x.name; x.seat = v.seat || x.seat; } }
   const topSessions = Object.values(sessionsMap).sort((a, b) => totalTokens(b) - totalTokens(a)).slice(0, 10);
