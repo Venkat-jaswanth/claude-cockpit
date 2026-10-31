@@ -640,6 +640,20 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .tb-card:hover { border-color: var(--line-strong); }
 .tb-card.tb-dragging { cursor: grabbing; border-color: var(--line-strong); box-shadow: 0 22px 54px rgba(0, 0, 0, .28); }
 .tb-ph { border: 1.5px dashed var(--line-strong); border-radius: var(--r-s); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+/* Done column: collapsible, so finished work stays tucked away until you want it */
+.tb-done-head { display: flex; align-items: center; gap: 8px; width: 100%; font: inherit; color: inherit; text-align: left; background: none; border: 0; cursor: pointer; padding: 2px 6px 10px; border-radius: var(--r-s); transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease; }
+.tb-done-head:hover { opacity: .8; }
+.tb-done-head:active { transform: scale(.98); }
+.tb-done-check { color: var(--ok); flex: none; opacity: .9; }
+.tb-done-chev { margin-left: auto; color: var(--faint); flex: none; transition: transform 240ms var(--ease-out); }
+.tbc-done:not(.collapsed) .tb-done-chev { transform: rotate(90deg); }
+.tbc-done.collapsed { flex: 0 0 auto; min-width: 0; padding: 0; background: transparent; border-color: transparent; }
+.tbc-done.collapsed .tb-cards { display: none; }
+.tbc-done.collapsed .tb-done-head { padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--text) 3%, transparent); white-space: nowrap; }
+.tbc-done.collapsed .tb-done-head:hover { opacity: 1; border-color: var(--line-strong); }
+.tbc-done.collapsed .tb-colname { color: var(--muted); }
+.tbc-done.collapsed.tbc-aim .tb-done-head { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); opacity: 1; }
+:root[data-motion="reduced"] .tb-done-head:active { transform: none; }
 .tb-top { margin-bottom: 7px; }
 .tb-tag { font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--panel-2); border-radius: 5px; padding: 3px 6px; }
 .tb-title { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; }
