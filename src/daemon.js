@@ -47,7 +47,9 @@ const sessions = new Map(Object.entries(persisted.sessions || {}));
 const events = Array.isArray(persisted.events) ? persisted.events : [];
 const jobs = Array.isArray(persisted.jobs) ? persisted.jobs : [];
 const tasks = Array.isArray(persisted.tasks) ? persisted.tasks : [];
+const projects = Array.isArray(persisted.projects) ? persisted.projects : [];
 const findTask = id => tasks.find(t => t.id === id) || null;
+const findProject = id => projects.find(p => p.id === id) || null;
 const TODOS_DIR = path.join(BASE_CLAUDE_DIR, 'todos'); // Claude Code's TodoWrite plans (a shared entry)
 const planCache = new Map();
 const notified = new Map();
@@ -222,7 +224,7 @@ function schedulePersist() {
   if (persistTimer) return;
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks }); } catch (e) { log('warn', `persist failed: ${e.message}`); }
+    try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks, projects }); } catch (e) { log('warn', `persist failed: ${e.message}`); }
   }, 300);
 }
 function addEvent(type, msg, data = {}) {
@@ -499,6 +501,24 @@ function taskView(t) {
   } : null;
   return { ...t, live };
 }
+// --- Projects: a named, stored thing (optionally bound to one folder, with optional tags). ---
+const PROJECT_COLORS = ['#6c8cff', '#59b89c', '#e0a458', '#d87a9a', '#8a7cff', '#4bb3d4', '#c98a5e', '#7bbf6a'];
+const expandHome = p => typeof p === 'string' ? p.replace(/^~(?=$|[/\\])/, os.homedir()) : p;
+const resolveFolder = p => { const e = expandHome(p); return e ? path.resolve(e) : null; };
+// A session belongs to a project by explicit link, or by its folder matching the project's folder.
+function sessionProjectId(s) {
+  if (s.projectId && findProject(s.projectId)) return s.projectId;
+  if (!s.cwd) return null;
+  const c = path.resolve(s.cwd);
+  const pr = projects.find(p => p.folder && path.resolve(p.folder) === c);
+  return pr ? pr.id : null;
+}
+function projectView(pr) {
+  const mine = tasks.filter(t => !t.archived && t.projectId === pr.id);
+  const live = [...sessions.values()].filter(s => s.kind !== 'probe' && s.alive && sessionProjectId(s) === pr.id).length;
+  return { ...pr, openTasks: mine.filter(t => t.status !== 'done').length, totalTasks: mine.length, live };
+}
+
 function state() {
   refreshUsage();
   return {
@@ -509,6 +529,7 @@ function state() {
     sessions: [...sessions.values()].filter(x => x.kind !== 'probe').map(sessionView).sort((a, b) => b.lastActivity - a.lastActivity),
     jobs: jobs.filter(j => j.status === 'queued' || (j.startedAt || j.createdAt) > Date.now() - 6 * 3600e3).sort((a, b) => a.at - b.at),
     tasks: tasks.filter(t => !t.archived).map(taskView),
+    projects: projects.map(projectView),
     events: events.slice(-150).reverse(),
   };
 }
@@ -518,9 +539,10 @@ function findSession(ref) {
   return live.find(s => s.name === ref) || live.find(s => s.sessionId === ref || s.sessionId.startsWith(ref)) || null;
 }
 
-function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, rows, initialPrompt, worktree, branch }) {
+function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, rows, initialPrompt, worktree, branch, projectId }) {
   cfg = loadConfig();
-  let cwdResolved = cwd ? path.resolve(cwd) : null;
+  const proj = projectId ? findProject(projectId) : null;
+  let cwdResolved = cwd ? path.resolve(expandHome(cwd)) : (proj && proj.folder ? path.resolve(proj.folder) : null);
   let stored = null;
   if (resumeId) { stored = findStored(resumeId); if (!cwdResolved && stored?.cwd) cwdResolved = stored.cwd; }
   if (!cwdResolved) cwdResolved = os.homedir();
@@ -538,6 +560,7 @@ function startClaudeSession({ cwd, seat: seatName, name, resumeId, extra, cols, 
   }
   const s = newSession({ cwd: cwdResolved, seat: seat.name, name: name || (wantId ? getMark(wantId)?.name : null) || (stored ? (stored.customTitle || null) : null), managed: true, sessionId: wantId, resume: !!resumeId, extra: Array.isArray(extra) ? extra.map(String) : [] });
   if (worktreePath) { s.worktree = worktreePath; s.worktreeRepo = worktreeRepo; }
+  if (proj) s.projectId = proj.id;
   if (initialPrompt) s.continuation = String(initialPrompt);
   manager.spawn(s, seat, { cols, rows });
   addEvent('start', `${label(s)}: ${resumeId ? 'resuming' : 'starting'} on ${seat.name}`, { cs: s.cs });
@@ -620,7 +643,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/state') return json(res, state());
       if (p === '/api/tasks') return json(res, { tasks: tasks.filter(t => !t.archived).map(taskView) });
       if (p === '/api/library') return json(res, { sessions: scanLibrary(), tags: allTags(), now: Date.now() });
-      if (p === '/api/projects') return json(res, { projects: recentProjects() });
+      if (p === '/api/projects') return json(res, { projects: projects.map(projectView), recent: recentProjects() });
       if (p === '/api/usage') return json(res, usageSummary());
       if (p === '/api/search') return json(res, { results: await searchTranscripts(url.searchParams.get('q') || '', { limit: 40 }) });
       if ((m = p.match(/^\/api\/sessions\/([^/]+)$/))) { const s = findSession(decodeURIComponent(m[1])); return s ? json(res, sessionView(s)) : json(res, { error: 'no such session' }, 404); }
@@ -633,14 +656,16 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/schedule') { if (!body.cwd || !fs.existsSync(path.resolve(body.cwd))) return json(res, { error: 'folder does not exist' }, 400); return json(res, { ok: true, job: addJob({ ...body, cwd: path.resolve(body.cwd) }) }); }
       if ((m = p.match(/^\/api\/schedule\/([^/]+)\/cancel$/))) { const job = jobs.find(j => j.id === m[1]); if (!job) return json(res, { error: 'no such job' }, 404); if (job.status === 'queued') { job.status = 'cancelled'; addEvent('schedule', `cancelled "${job.name || ''}"`); schedulePersist(); } return json(res, { ok: true }); }
       if (p === '/api/tasks') {
-        const t = { id: crypto.randomBytes(4).toString('hex'), title: String(body.title || '').slice(0, 200), desc: String(body.desc || ''), cwd: body.cwd ? path.resolve(body.cwd) : null, project: body.project || null, seat: body.seat || null, status: ['backlog', 'ready', 'inprogress', 'done'].includes(body.status) ? body.status : 'backlog', order: Number(body.order) || Date.now(), autoKick: body.autoKick !== false, worktree: !!body.worktree, branch: body.branch || null, sessionCs: null, sessionId: null, archived: false, createdAt: Date.now(), updatedAt: Date.now() };
+        const pr = body.projectId ? findProject(body.projectId) : null;
+        const cwd = body.cwd ? resolveFolder(body.cwd) : (pr && pr.folder ? path.resolve(pr.folder) : null);
+        const t = { id: crypto.randomBytes(4).toString('hex'), title: String(body.title || '').slice(0, 200), desc: String(body.desc || ''), cwd, projectId: pr ? pr.id : null, project: pr ? pr.name : (body.project || null), seat: body.seat || null, status: ['backlog', 'ready', 'inprogress', 'done'].includes(body.status) ? body.status : 'backlog', order: Number(body.order) || Date.now(), autoKick: body.autoKick !== false, worktree: !!body.worktree, branch: body.branch || null, sessionCs: null, sessionId: null, archived: false, createdAt: Date.now(), updatedAt: Date.now() };
         tasks.push(t); addEvent('task', `added "${t.title || 'untitled'}"`); schedulePersist();
         return json(res, { ok: true, task: taskView(t) });
       }
       if ((m = p.match(/^\/api\/tasks\/([^/]+)\/launch$/))) {
         const t = findTask(m[1]); if (!t) return json(res, { error: 'no such task' }, 404);
         if (!t.cwd || !fs.existsSync(t.cwd)) return json(res, { error: 'task has no project folder' }, 400);
-        const r = startClaudeSession({ cwd: t.cwd, seat: t.seat || body.seat || null, name: t.title, initialPrompt: t.autoKick ? (t.desc || t.title) : undefined, worktree: !!t.worktree, branch: t.branch || null });
+        const r = startClaudeSession({ cwd: t.cwd, seat: t.seat || body.seat || null, name: t.title, initialPrompt: t.autoKick ? (t.desc || t.title) : undefined, worktree: !!t.worktree, branch: t.branch || null, projectId: t.projectId || null });
         t.sessionCs = r.cs; t.sessionId = r.sessionId; t.status = 'inprogress'; t.endedNudged = false; t.updatedAt = Date.now();
         addEvent('task', `launched "${t.title}" on ${r.seat.name}`, { cs: r.cs }); schedulePersist();
         return json(res, { ok: true, task: taskView(t) });
@@ -653,10 +678,50 @@ const server = http.createServer(async (req, res) => {
       if ((m = p.match(/^\/api\/tasks\/([^/]+)$/))) {
         const t = findTask(m[1]); if (!t) return json(res, { error: 'no such task' }, 404);
         for (const k of ['title', 'desc', 'status', 'order', 'seat', 'project', 'autoKick', 'worktree', 'branch', 'archived']) if (k in body) t[k] = body[k];
-        if ('cwd' in body) t.cwd = body.cwd ? path.resolve(body.cwd) : null;
+        if ('projectId' in body) {
+          t.projectId = body.projectId || null;
+          const pr = t.projectId ? findProject(t.projectId) : null;
+          if (pr) { t.project = pr.name; if (pr.folder && !('cwd' in body)) t.cwd = path.resolve(pr.folder); }
+        }
+        if ('cwd' in body) t.cwd = body.cwd ? resolveFolder(body.cwd) : null;
         t.completedAt = t.status === 'done' ? (t.completedAt || Date.now()) : null;
         t.updatedAt = Date.now(); schedulePersist();
         return json(res, { ok: true, task: taskView(t) });
+      }
+      if (p === '/api/projects') {
+        const name = String(body.name || '').trim().slice(0, 60);
+        if (!name) return json(res, { error: 'a project needs a name' }, 400);
+        if (projects.some(x => x.name.toLowerCase() === name.toLowerCase())) return json(res, { error: `a project called "${name}" already exists` }, 400);
+        let folder = null;
+        if (body.folder) {
+          folder = resolveFolder(body.folder);
+          if (body.createFolder) { try { fs.mkdirSync(folder, { recursive: true }); } catch (e) { return json(res, { error: `could not create folder: ${e.message}` }, 400); } }
+          else if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) return json(res, { error: 'that folder does not exist' }, 400);
+        }
+        const tags = Array.isArray(body.tags) ? body.tags.map(x => String(x).trim()).filter(Boolean).slice(0, 12) : [];
+        const pr = { id: crypto.randomBytes(4).toString('hex'), name, folder, tags, color: body.color || PROJECT_COLORS[projects.length % PROJECT_COLORS.length], createdAt: Date.now(), updatedAt: Date.now() };
+        projects.push(pr); addEvent('project', `created project "${name}"`); schedulePersist();
+        return json(res, { ok: true, project: projectView(pr) });
+      }
+      if ((m = p.match(/^\/api\/projects\/([^/]+)\/delete$/))) {
+        const i = projects.findIndex(x => x.id === m[1]); if (i < 0) return json(res, { error: 'no such project' }, 404);
+        const [pr] = projects.splice(i, 1);
+        for (const t of tasks) if (t.projectId === pr.id) t.projectId = null;
+        for (const s of sessions.values()) if (s.projectId === pr.id) delete s.projectId;
+        addEvent('project', `deleted project "${pr.name}"`); schedulePersist();
+        return json(res, { ok: true });
+      }
+      if ((m = p.match(/^\/api\/projects\/([^/]+)$/))) {
+        const pr = findProject(m[1]); if (!pr) return json(res, { error: 'no such project' }, 404);
+        if ('name' in body) { const n = String(body.name || '').trim().slice(0, 60); if (!n) return json(res, { error: 'a project needs a name' }, 400); if (projects.some(x => x.id !== pr.id && x.name.toLowerCase() === n.toLowerCase())) return json(res, { error: `a project called "${n}" already exists` }, 400); pr.name = n; }
+        if ('folder' in body) {
+          if (body.folder) { const f = resolveFolder(body.folder); if (body.createFolder) { try { fs.mkdirSync(f, { recursive: true }); } catch (e) { return json(res, { error: `could not create folder: ${e.message}` }, 400); } } else if (!fs.existsSync(f) || !fs.statSync(f).isDirectory()) return json(res, { error: 'that folder does not exist' }, 400); pr.folder = f; }
+          else pr.folder = null;
+        }
+        if ('tags' in body) pr.tags = Array.isArray(body.tags) ? body.tags.map(x => String(x).trim()).filter(Boolean).slice(0, 12) : [];
+        if ('color' in body) pr.color = String(body.color || '').slice(0, 20) || pr.color;
+        pr.updatedAt = Date.now(); schedulePersist();
+        return json(res, { ok: true, project: projectView(pr) });
       }
       if ((m = p.match(/^\/api\/marks\/([^/]+)$/))) { const mk = setMark(decodeURIComponent(m[1]), body || {}); return json(res, { ok: true, mark: mk }); }
       if (p === '/api/marks-batch') { const ids = Array.isArray(body.sessionIds) ? body.sessionIds : []; for (const id of ids) setMark(String(id), body.patch || {}); addEvent('marks', `updated ${ids.length} session${ids.length === 1 ? '' : 's'}`); return json(res, { ok: true, count: ids.length }); }
@@ -847,7 +912,7 @@ function shutdown() {
   clearTimeout(pollTimer);
   // Kill the PTYs we own so no `claude` process is orphaned to keep writing a transcript.
   for (const s of sessions.values()) { if (s.alive && s.kind === 'claude' && s.managed) { try { manager.killNow(s); } catch {} s.status = 'lost'; } else if (s.alive) s.status = 'lost'; }
-  try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks }); } catch {}
+  try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks, projects }); } catch {}
   try { writeJson(LEDGER_FILE, ledger); } catch {}
   try { if (fs.existsSync(PID_FILE) && Number(fs.readFileSync(PID_FILE, 'utf8')) === process.pid) fs.unlinkSync(PID_FILE); } catch {}
   server.close();

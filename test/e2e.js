@@ -111,7 +111,17 @@ try {
   const lib = (await api('GET', '/api/library')).body.sessions;
   const stored = lib.find(x => x.sessionId === sessionId);
   check(stored && stored.title === 'Fake session title' && stored.cwd === proj && stored.firstPrompt === 'work', 'library lists the session with its title, folder and first prompt');
-  check((await api('GET', '/api/projects')).body.projects.some(p => p.cwd === proj), 'recent projects include the test folder');
+  check((await api('GET', '/api/projects')).body.recent.some(p => p.cwd === proj), 'recent projects include the test folder');
+  // Projects as first-class entities: create, link a task, validate, delete.
+  { const r = await api('POST', '/api/projects', { name: 'E2E Proj', folder: proj }); check(r.body.ok && r.body.project.folder === proj, 'project created and bound to an existing folder'); }
+  { const r = await api('POST', '/api/projects', { name: 'Folderless', tags: ['x', 'y'] }); check(r.body.ok && r.body.project.folder === null && r.body.project.tags.join(',') === 'x,y', 'folderless project with tags created'); }
+  { const r = await api('POST', '/api/projects', { name: 'e2e proj' }); check(r.status === 400 && /already exists/.test(r.body.error || ''), 'duplicate project name is rejected (case-insensitive)'); }
+  { const r = await api('POST', '/api/projects', { name: 'Needs real folder', folder: path.join(tmp, 'nope-does-not-exist') }); check(r.status === 400 && /does not exist/.test(r.body.error || ''), 'a missing folder without create is rejected'); }
+  { const made = path.join(tmp, 'created-by-cockpit'); const r = await api('POST', '/api/projects', { name: 'Made Folder', folder: made, createFolder: true }); check(r.body.ok && fs.existsSync(made), 'createFolder makes the directory on disk'); }
+  const pjId = (await api('GET', '/api/projects')).body.projects.find(p => p.name === 'E2E Proj').id;
+  check((await api('GET', '/api/state')).body.projects.some(p => p.id === pjId), 'state exposes the project list');
+  { const r = await api('POST', '/api/tasks', { title: 'linked task', projectId: pjId }); check(r.body.task.projectId === pjId && r.body.task.cwd === proj && r.body.task.project === 'E2E Proj', 'task inherits folder + label from its project'); }
+  { const r = await api('POST', `/api/projects/${pjId}/delete`); check(r.body.ok, 'project deleted'); const t = (await api('GET', '/api/tasks')).body.tasks.find(x => x.title === 'linked task'); check(t && t.projectId === null && t.cwd === proj, 'deleting a project clears the task link but keeps its folder'); }
   check(stored.tokens && stored.tokens.output === 100 && stored.costUSD === 0.02, 'library carries per-session tokens and cost from cost-state');
   const usage = (await api('GET', '/api/usage')).body;
   check(usage.today.total.turns === 2 && usage.today.total.output === 100 && usage.today.total.input === 20 && usage.today.total.cacheRead === 2000, 'ledger counted two turns with deduplicated assistant usage');
