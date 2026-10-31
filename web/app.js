@@ -893,8 +893,10 @@ function wireTasks(el) {
   };
   const begin = () => {
     const card = drag.el, ph = document.createElement('div'); ph.className = 'tb-ph'; ph.style.height = drag.h + 'px'; drag.ph = ph;
-    drag.cb = cbOrigin(card);            // measure the fixed containing block while the card is still in flow
-    card.after(ph);
+    card.after(ph);                       // leave a placeholder where the card was
+    try { card.getAnimations().forEach(a => a.cancel()); } catch {}   // drop any entrance/spring animation so it can't fight the drag transform
+    document.body.appendChild(card);     // reparent out of the board: fixed is now viewport-relative no matter what any ancestor's transform does mid-drag
+    drag.cb = cbOrigin(card);            // normally {0,0}; still compensates if body/html ever forms a containing block
     if (!tbReduce()) { try { ph.animate([{ height: '0px', opacity: 0 }, { height: drag.h + 'px', opacity: 1 }], { duration: 200, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
     card.classList.add('tb-dragging');
     Object.assign(card.style, { position: 'fixed', zIndex: '1000', width: drag.w + 'px', margin: '0', pointerEvents: 'none', left: (drag.sx - drag.offX - drag.cb.x) + 'px', top: (drag.sy - drag.offY - drag.cb.y) + 'px', transform: 'scale(1.03)' });
