@@ -911,8 +911,9 @@ function activityRows(folder, pid) {
   const liveIds = new Set(live.map(s => s.sessionId));
   const past = convs.filter(c => !liveIds.has(c.sessionId)).slice(0, Math.max(0, 3 - live.length));
   if (!live.length && !past.length) return '';
+  const ctx = pid ? `data-pact="reveal" data-pid="${esc(pid)}"` : `data-pact="reveal" data-folder="${esc(folder || '')}"`;
   const liveHtml = live.slice(0, 4).map(s => `<button class="proj-live-row" data-pact="open" data-cs="${esc(s.cs)}" title="Open this live session"><span class="dot ${s.status === 'idle' ? 'starting' : 'busy'}"></span><span class="proj-live-nm">${esc(s.name || short(s.cwd || '') || s.cs)}</span><span class="muted">${esc(s.seat || '')}</span></button>`).join('');
-  const pastHtml = past.map(c => `<button class="proj-live-row" data-pact="hist-folder" data-folder="${esc(folder || '')}" title="See this conversation in Library"><span class="dot"></span><span class="proj-live-nm">${esc(c.title || c.sessionId.slice(0, 8))}</span><span class="muted">${esc(ago(c.lastAt))}</span></button>`).join('');
+  const pastHtml = past.map(c => `<button class="proj-live-row" ${ctx} title="Show all sessions"><span class="dot"></span><span class="proj-live-nm">${esc(c.title || c.sessionId.slice(0, 8))}</span><span class="muted">${esc(ago(c.lastAt))}</span></button>`).join('');
   return `<div class="proj-live">${liveHtml}${pastHtml}</div>`;
 }
 // Options for a project <select>: "No project", every project, then the "+ New project…" sentinel.
@@ -979,7 +980,55 @@ projForm.addEventListener('submit', async ev => {
     if (cb && j.project) cb(j.project);
   } catch {}
 });
-window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !projScrim.hidden) { ev.stopPropagation(); closeProjectDialog(); } });
+window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !projScrim.hidden) { ev.stopPropagation(); closeProjectDialog(); } else if (ev.key === 'Escape' && projDrawerEl && !projDrawerEl.hidden) { ev.stopPropagation(); closeProjDrawer(); } });
+
+// --- Project sessions drawer: slides in from the right, staggers its rows into view. ---
+let projDrawerEl = null;
+function ensureProjDrawer() {
+  if (projDrawerEl) return projDrawerEl;
+  const scrim = document.createElement('div');
+  scrim.className = 'drawer-scrim'; scrim.hidden = true;
+  scrim.innerHTML = '<aside class="drawer" role="dialog" aria-modal="true" aria-label="Project sessions"><div class="drawer-inner"></div></aside>';
+  document.body.appendChild(scrim);
+  scrim.addEventListener('click', e => { if (e.target === scrim) closeProjDrawer(); });
+  projDrawerEl = scrim; return scrim;
+}
+function closeProjDrawer() {
+  if (!projDrawerEl || projDrawerEl.hidden) return;
+  const panel = projDrawerEl.querySelector('.drawer');
+  if (tbReduce()) { projDrawerEl.hidden = true; return; }
+  projDrawerEl.classList.remove('open');
+  let done = false; const finish = () => { if (done) return; done = true; projDrawerEl.hidden = true; };
+  panel.addEventListener('transitionend', finish, { once: true }); setTimeout(finish, 440);
+}
+function openProjDrawer({ pid = null, folder = null } = {}) {
+  const pr = pid ? selectedProject(pid) : null;
+  const f = pr ? pr.folder : folder;
+  const name = pr ? pr.name : baseName(f || '');
+  const color = pr ? (pr.color || 'var(--accent)') : 'var(--faint)';
+  const live = liveFor(f, pid);
+  const liveIds = new Set(live.map(s => s.sessionId));
+  const convs = convsFor(f).filter(c => !liveIds.has(c.sessionId));
+  const scrim = ensureProjDrawer(), inner = scrim.querySelector('.drawer-inner');
+  const liveHtml = live.length ? `<div class="drawer-sec"><div class="drawer-sec-h">Live now</div>${live.map(s => `<button class="drawer-row" data-dopen="${esc(s.cs)}"><span class="dot ${s.status === 'idle' ? 'starting' : 'busy'}"></span><span class="drawer-row-main"><span class="drawer-row-t">${esc(s.name || short(s.cwd || '') || s.cs)}</span><span class="drawer-row-m">${esc(s.seat || 'best seat')} · ${esc(s.status)}</span></span><span class="drawer-row-go">Open ›</span></button>`).join('')}</div>` : '';
+  const histHtml = convs.length ? `<div class="drawer-sec"><div class="drawer-sec-h">History <span class="muted">${convs.length}</span></div>${convs.slice(0, 60).map(c => `<button class="drawer-row" data-dresume="${esc(c.sessionId)}" data-dcwd="${esc(c.cwd || f || '')}"><span class="dot"></span><span class="drawer-row-main"><span class="drawer-row-t">${esc(c.title || c.sessionId.slice(0, 8))}</span><span class="drawer-row-m">${esc(ago(c.lastAt))}${c.cwd && c.cwd !== f ? ' · ' + esc(short(c.cwd)) : ''}</span></span><span class="drawer-row-go">Resume ›</span></button>`).join('')}</div>` : '';
+  const empty = (!live.length && !convs.length) ? '<div class="drawer-empty">No sessions or conversations here yet. Launch one from a task, or start a New session.</div>' : '';
+  inner.innerHTML = `
+    <div class="drawer-head"><div class="drawer-title"><span class="proj-dot" style="background:${esc(color)}"></span><span>${esc(name)}</span></div><button class="btn ghost sm" data-dclose aria-label="Close">✕</button></div>
+    ${f ? `<div class="drawer-folder mono">${esc(short(f))}</div>` : ''}
+    <div class="drawer-body">${liveHtml}${histHtml}${empty}</div>
+    <div class="drawer-foot"><button class="btn sm" ${pid ? `data-dlib-proj="${esc(pid)}"` : `data-dlib-folder="${esc(f || '')}"`}>Open in Library →</button></div>`;
+  inner.querySelector('[data-dclose]').onclick = closeProjDrawer;
+  inner.querySelectorAll('[data-dopen]').forEach(b => b.onclick = async () => { try { await openSession(b.dataset.dopen, 'browser'); } catch {} });
+  inner.querySelectorAll('[data-dresume]').forEach(b => b.onclick = async () => { try { await startSession({ resumeId: b.dataset.dresume, cwd: b.dataset.dcwd || undefined }, 'browser'); closeProjDrawer(); } catch {} });
+  const lib = inner.querySelector('[data-dlib-proj],[data-dlib-folder]');
+  if (lib) lib.onclick = () => { if (lib.dataset.dlibProj) { libProject = lib.dataset.dlibProj; libFilter = ''; } else { libFilter = lib.dataset.dlibFolder; libProject = ''; } closeProjDrawer(); lastSig = null; location.hash = '#/library'; };
+  scrim.hidden = false;
+  requestAnimationFrame(() => {
+    scrim.classList.add('open');
+    if (!tbReduce()) inner.querySelectorAll('.drawer-row').forEach((r, i) => { try { r.animate([{ opacity: 0, transform: 'translateX(16px)' }, { opacity: 1, transform: 'none' }], { duration: 380, delay: 60 + i * 34, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }); } catch {} });
+  });
+}
 
 function vProjects() {
   const list = projects || [];
@@ -996,7 +1045,7 @@ function vProjects() {
         ${tags ? `<div class="proj-tags">${tags}</div>` : ''}
         <div class="proj-stats"><span><b>${p.openTasks || 0}</b> open</span><span><b>${done}</b> done</span><span class="${p.live ? 'proj-livecount' : ''}"><b>${p.live || 0}</b> live</span>${p.folder ? `<span><b>${convs}</b> chat${convs === 1 ? '' : 's'}</span>` : ''}</div>
         ${activityRows(p.folder, p.id)}
-        <div class="proj-actions"><button class="btn sm" data-pact="tasks" data-pid="${esc(p.id)}">Tasks</button><button class="btn sm" data-pact="session" data-pid="${esc(p.id)}">New session</button><button class="btn sm ghost" data-pact="history" data-pid="${esc(p.id)}">History</button></div>
+        <div class="proj-actions"><button class="btn sm" data-pact="tasks" data-pid="${esc(p.id)}">Tasks</button><button class="btn sm" data-pact="session" data-pid="${esc(p.id)}">New session</button><button class="btn sm ghost" data-pact="reveal" data-pid="${esc(p.id)}">Sessions</button></div>
       </div>
     </article>`;
   }).join('');
@@ -1013,7 +1062,7 @@ function vProjects() {
         <div class="proj-folder"><span class="mono">${esc(short(r.cwd))}</span></div>
         <div class="proj-stats"><span><b>${convs}</b> chat${convs === 1 ? '' : 's'}</span>${live ? `<span class="proj-livecount"><b>${live}</b> live</span>` : ''}</div>
         ${activityRows(r.cwd, null)}
-        <div class="proj-actions"><button class="btn sm" data-pact="save-folder" data-folder="${esc(r.cwd)}">+ Save as project</button><button class="btn sm ghost" data-pact="hist-folder" data-folder="${esc(r.cwd)}">History</button><button class="btn sm ghost" data-pact="sess-folder" data-folder="${esc(r.cwd)}">New session</button></div>
+        <div class="proj-actions"><button class="btn sm" data-pact="save-folder" data-folder="${esc(r.cwd)}">+ Save as project</button><button class="btn sm ghost" data-pact="reveal" data-folder="${esc(r.cwd)}">Sessions</button><button class="btn sm ghost" data-pact="sess-folder" data-folder="${esc(r.cwd)}">New session</button></div>
       </div>
     </article>`;
   }).join('');
@@ -1035,12 +1084,11 @@ function wireProjects(el) {
     if (act === 'open' && cs) { try { await openSession(cs, 'browser'); } catch {} return; }
     if (act === 'tasks') { taskProjectFilter = pid; lastSig = null; location.hash = '#/tasks'; return; }
     if (act === 'session') { openSheet(); setTimeout(() => { const s = $('#nsProject'); if (s) { s.value = pid; s.dispatchEvent(new Event('change', { bubbles: true })); } }, 40); return; }
-    if (act === 'history') { libFilter = p ? (p.folder ? short(p.folder) : p.name) : ''; lastSig = null; location.hash = '#/library'; return; }
+    if (act === 'reveal') return openProjDrawer({ pid: pid || null, folder: folder || null });
     if (act === 'edit' && p) return openProjectDialog({ project: p, onDone: () => {} });
     if (act === 'delete' && p) { if (!confirm(`Delete project “${p.name}”? Its tasks and the folder on disk are kept — they just lose the project link.`)) return; try { await post(`/api/projects/${pid}/delete`); toast('Project deleted'); await load(); loadSlow(); } catch {} return; }
     // Folder cards (history folders not yet a named project)
     if (act === 'save-folder' && folder) return openProjectDialog({ prefill: { name: baseName(folder), folder }, onDone: () => {} });
-    if (act === 'hist-folder' && folder) { libFilter = short(folder); lastSig = null; location.hash = '#/library'; return; }
     if (act === 'sess-folder' && folder) { openSheet(); setTimeout(() => { if (nsForm.cwd) nsForm.cwd.value = short(folder); }, 40); return; }
   });
 }
