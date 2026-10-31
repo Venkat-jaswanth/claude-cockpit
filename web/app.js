@@ -7,13 +7,13 @@ const VIEWS = {
   tasks: ['Tasks', 'Plan the work, launch it as a session, watch it run'],
   projects: ['Projects', 'Your projects, each with its tasks, live sessions and history'],
   workspace: ['Workspace', 'Watch and drive several live sessions side by side'],
-  library: ['Library', 'Every stored conversation, grouped by project. Star, tag and resume on any seat'],
+  library: ['Library', 'Every stored conversation, grouped by folder. Star, tag, filter by project, and resume on any seat'],
   usage: ['Usage', 'Tokens booked to the seat that ran each turn; cost is Claude Code\'s own estimate'],
   activity: ['Activity', 'What the daemon did and why'],
   settings: ['Settings', 'Handoff policy and automation'],
   help: ['Help', 'How it works and the matching terminal commands'],
 };
-let state = null, library = [], projects = [], recentFolders = [], usage = null, allTags = [], libFilter = '', libGroup = 'project', libStar = false, libTag = '', showArchived = false, view = 'overview', dirtyForms = new Set(), theme = 'auto', taskProjectFilter = '', tbComposerProject = '';
+let state = null, library = [], projects = [], recentFolders = [], usage = null, allTags = [], libFilter = '', libGroup = 'folder', libStar = false, libTag = '', libProject = '', showArchived = false, view = 'overview', dirtyForms = new Set(), theme = 'auto', taskProjectFilter = '', tbComposerProject = '';
 let deepResults = null, deepQuery = '', selected = new Set();
 let openGroups = {}; try { openGroups = JSON.parse(localStorage.getItem('cockpit.groups') || '{}'); } catch {}
 function saveGroups() { try { localStorage.setItem('cockpit.groups', JSON.stringify(openGroups)); } catch {} }
@@ -397,6 +397,9 @@ function vLibrary() {
   if (libStar) rows = rows.filter(r => r.star);
   if (libTag) rows = rows.filter(r => (r.tags || []).includes(libTag));
   if (q) rows = rows.filter(r => [r.title, r.cwd, r.firstPrompt, r.lastPrompt, r.gitBranch, r.projectName, ...(r.tags||[])].some(v => v && String(v).toLowerCase().includes(q)));
+  const lp = libProject ? (projects || []).find(p => p.id === libProject) : null;
+  if (libProject && !lp) libProject = '';                                   // project was deleted; drop the stale filter
+  if (lp && lp.folder) rows = rows.filter(r => r.cwd === lp.folder || r.projectPath === lp.folder);
   const starred = rows.filter(r => r.star);
   const groups = new Map();
   for (const r of rows) { const k = groupKey(r); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
@@ -409,6 +412,10 @@ function vLibrary() {
     const open = (g.k in openGroups) ? openGroups[g.k] : (filtering ? true : idx === 0);
     const h = hue(name || 'x');
     const starCount = g.list.filter(r => r.star).length;
+    // If this folder/repo is a named project, link to it in the Projects hub.
+    const groupFolder = libGroup === 'folder' ? sample.cwd : (sample.projectPath || sample.cwd);
+    const np = (projects || []).find(p => p.folder && (p.folder === groupFolder || p.folder === sample.cwd || p.folder === sample.projectPath));
+    const projChip = np ? `<span class="pproj" role="button" tabindex="0" data-projjump="${esc(np.id)}" title="Open “${esc(np.name)}” in Projects"><span class="pproj-dot" style="background:${esc(np.color || 'var(--accent)')}"></span>${esc(np.name)} →</span>` : '';
     return `<div class="pcard ${open ? 'open' : ''}">
       <button class="phead" data-group="${esc(encodeURIComponent(g.k))}" aria-expanded="${open}">
         <span class="pchev" aria-hidden="true">▸</span>
@@ -416,6 +423,7 @@ function vLibrary() {
         <span class="pname">${esc(name)}${sample.inRepo && libGroup === 'project' ? ' <span class="badge">repo</span>' : ''}${(libGroup === 'project' && aliasName(sample.projectName) !== sample.projectName) ? ' <span class="badge" title="Renamed from ' + esc(sample.projectName) + '">renamed</span>' : ''}</span>
         ${libGroup === 'project' ? `<span class="iconbtn" role="button" tabindex="0" data-projrename="${esc(sample.projectName)}" title="Rename this project">✎</span>` : ''}
         ${pathLine ? `<span class="ppath tiny muted">${esc(pathLine)}</span>` : ''}
+        ${projChip}
         <span class="pmeta tiny muted">${starCount ? `<span class="pmeta-star">★ ${starCount}</span> · ` : ''}${fmtTok(g.tokens)} tok${g.cost ? ' · ' + fmtCost(g.cost) : ''} · ${ago(g.lastAt)}</span>
         <span class="pcount" title="${g.list.length} conversation${g.list.length === 1 ? '' : 's'}">${g.list.length}</span>
       </button>
@@ -453,8 +461,9 @@ function vLibrary() {
         <input class="inp" id="libSearch" placeholder="Filter by title/folder/tag; press ↵ to search inside conversations" value="${esc(libFilter)}">
         <button class="btn sm" id="deepBtn" title="Search the full text of every stored conversation">Search contents</button>
         <div class="seg" id="libGroupSeg">
-          ${['project','folder','flat'].map(g => `<button class="${libGroup === g ? 'on' : ''}" data-group-mode="${g}">${g[0].toUpperCase()+g.slice(1)}</button>`).join('')}
+          ${[['folder', 'Folder'], ['project', 'Repo'], ['flat', 'All']].map(([g, lbl]) => `<button class="${libGroup === g ? 'on' : ''}" data-group-mode="${g}">${lbl}</button>`).join('')}
         </div>
+        ${(projects || []).some(p => p.folder) ? `<select class="sel sm" id="libProjectSel" title="Filter to a project"><option value="">All projects</option>${projects.filter(p => p.folder).map(p => `<option value="${esc(p.id)}"${libProject === p.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}
         ${(!deepResults && libGroup !== 'flat' && ordered.length > 1) ? (() => { const allOpen = ordered.every((g, i) => (g.k in openGroups) ? openGroups[g.k] : (filtering ? true : i === 0)); return `<button class="btn sm" id="libExpand">${allOpen ? 'Collapse all' : 'Expand all'}</button>`; })() : ''}
         <button class="btn sm ${libStar ? 'primary' : ''}" id="libStarBtn">★ Starred</button>
         <button class="btn sm ${showArchived ? 'primary' : ''}" id="libArchBtn" title="Show archived too">Archived</button>
@@ -615,7 +624,7 @@ function renderSig() {
   const base = { view, dirty: [...dirtyForms], seats, sess, ev, probing: state?.probing, jobs: (state?.jobs || []).map(j => [j.id, j.status, j.at]),
     cfg: state?.config && [state.config.handoff?.mode, state.config.handoff?.thresholdPct, state.config.notifications, state.config.autoCheckMin] };
   if (view === 'usage') base.usage = usage && [usage.today?.total, usage.week?.total, usage.month?.total, usage.budgetMonthlyUSD, usage.all?.total, (usage.byDay || []).map(d => d.input + d.output + d.cacheRead + d.cacheWrite)];
-  if (view === 'library') base.lib = { f: [libFilter, libGroup, libStar, libTag, showArchived], sel: selected.size, deep: deepResults ? deepResults.length : -1, dq: deepQuery, g: openGroups, rows: library.map(r => [r.sessionId, r.title, r.star, (r.tags || []).join(','), r.projectName, r.archived, Math.round(tot(r.tokens) / 1e5)]) };
+  if (view === 'library') base.lib = { f: [libFilter, libGroup, libStar, libTag, libProject, showArchived], sel: selected.size, deep: deepResults ? deepResults.length : -1, dq: deepQuery, g: openGroups, pj: (projects || []).map(p => [p.id, p.name, p.folder, p.color]), rows: library.map(r => [r.sessionId, r.title, r.star, (r.tags || []).join(','), r.projectName, r.archived, Math.round(tot(r.tokens) / 1e5)]) };
   if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total), usage && (usage.today?.total?.cost || 0), usage && tot(usage.week?.total), usage && (usage.month?.total?.cost || 0), usage && usage.budgetMonthlyUSD];
   if (view === 'tasks') { base.tasks = (state?.tasks || []).map(t => [t.id, t.status, t.order, t.title, t.project, t.projectId, t.seat, t.archived, t.autoKick, t.worktree, t.live && [t.live.status, t.live.needsYou, t.live.plan && (t.live.plan.done + '/' + t.live.plan.total), t.live.cost && Math.round(t.live.cost.usd)]]); base.tpf = taskProjectFilter; base.tcp = tbComposerProject; }
   if (view === 'projects' || view === 'tasks') base.projects = (projects || []).map(p => [p.id, p.name, p.folder, (p.tags || []).join(','), p.color, p.openTasks, p.totalTasks, p.live]);
@@ -1118,6 +1127,8 @@ function wire(el) {
   el.querySelectorAll('[data-group]').forEach(b => b.onclick = () => { const k = decodeURIComponent(b.dataset.group); const idx = [...el.querySelectorAll('[data-group]')].indexOf(b); const filtering = !!(libFilter.trim() || libStar || libTag); const cur = (k in openGroups) ? openGroups[k] : (filtering ? true : idx === 0); openGroups[k] = !cur; saveGroups(); render(); });
   const expAll = el.querySelector('#libExpand'); if (expAll) expAll.onclick = () => { const keys = [...el.querySelectorAll('[data-group]')].map(b => decodeURIComponent(b.dataset.group)); const anyClosed = keys.some((k, i) => !((k in openGroups) ? openGroups[k] : (!!(libFilter.trim() || libStar || libTag) ? true : i === 0))); keys.forEach(k => openGroups[k] = anyClosed); saveGroups(); render(); };
   el.querySelectorAll('[data-group-mode]').forEach(b => b.onclick = () => { libGroup = b.dataset.groupMode; render(); });
+  const projSel = el.querySelector('#libProjectSel'); if (projSel) projSel.onchange = () => { libProject = projSel.value; render(); };
+  el.querySelectorAll('[data-projjump]').forEach(b => { const go = e => { e.stopPropagation(); location.hash = '#/projects'; }; b.onclick = go; b.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') go(e); }; });
   const starBtn = el.querySelector('#libStarBtn'); if (starBtn) starBtn.onclick = () => { libStar = !libStar; render(); };
   const archBtn = el.querySelector('#libArchBtn'); if (archBtn) archBtn.onclick = () => { showArchived = !showArchived; render(); };
   el.querySelectorAll('[data-filtertag]').forEach(b => b.onclick = () => { libTag = b.dataset.filtertag; render(); });

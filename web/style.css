@@ -724,6 +724,9 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .proj-card-folder { border-style: dashed; }
 .proj-card-folder .proj-name { color: var(--muted); }
 .proj-hint { font-size: 13px; color: var(--muted); padding: 2px 0 2px; }
+.pproj { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; margin-left: 8px; cursor: pointer; transition: border-color 120ms ease, color 120ms ease; }
+.pproj:hover { border-color: var(--accent); color: var(--text); }
+.pproj-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .linklike { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .linklike:hover { filter: brightness(1.1); }
 @media (max-width: 560px) { .proj-grid { grid-template-columns: 1fr; } .proj-head { flex-direction: column; align-items: flex-start; gap: 10px; } }
