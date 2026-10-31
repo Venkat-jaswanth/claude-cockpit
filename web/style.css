@@ -719,6 +719,13 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .proj-empty-ic { font-size: 34px; color: var(--faint); line-height: 1; }
 .proj-empty-t { font-size: 16px; font-weight: 650; }
 .proj-empty .btn { margin-top: 6px; }
+.proj-subhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 26px 0 12px; }
+.proj-subhead h3 { font-size: 13px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+.proj-card-folder { border-style: dashed; }
+.proj-card-folder .proj-name { color: var(--muted); }
+.proj-hint { font-size: 13px; color: var(--muted); padding: 2px 0 2px; }
+.linklike { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.linklike:hover { filter: brightness(1.1); }
 @media (max-width: 560px) { .proj-grid { grid-template-columns: 1fr; } .proj-head { flex-direction: column; align-items: flex-start; gap: 10px; } }
 
 /* ---------- New / edit project dialog ---------- */

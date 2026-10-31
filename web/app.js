@@ -619,7 +619,7 @@ function renderSig() {
   if (view === 'overview') base.ov = [library.length, usage && tot(usage.today?.total), usage && (usage.today?.total?.cost || 0), usage && tot(usage.week?.total), usage && (usage.month?.total?.cost || 0), usage && usage.budgetMonthlyUSD];
   if (view === 'tasks') { base.tasks = (state?.tasks || []).map(t => [t.id, t.status, t.order, t.title, t.project, t.projectId, t.seat, t.archived, t.autoKick, t.worktree, t.live && [t.live.status, t.live.needsYou, t.live.plan && (t.live.plan.done + '/' + t.live.plan.total), t.live.cost && Math.round(t.live.cost.usd)]]); base.tpf = taskProjectFilter; base.tcp = tbComposerProject; }
   if (view === 'projects' || view === 'tasks') base.projects = (projects || []).map(p => [p.id, p.name, p.folder, (p.tags || []).join(','), p.color, p.openTasks, p.totalTasks, p.live]);
-  if (view === 'projects') base.psess = (state?.sessions || []).map(s => [s.cs, s.projectId, s.cwd, s.alive, s.status]);
+  if (view === 'projects') { base.psess = (state?.sessions || []).map(s => [s.cs, s.projectId, s.cwd, s.alive, s.status]); base.plib = (library || []).map(r => [r.sessionId, r.cwd, r.projectName, r.lastAt]); base.prf = (recentFolders || []).map(r => r.cwd); }
   return JSON.stringify(base);
 }
 // Count a number up to its target on view entrance. Elements opt in with data-count (raw value)
@@ -891,6 +891,21 @@ function wireTasks(el) {
 }
 /* ---------- Projects ---------- */
 function selectedProject(id) { return (projects || []).find(p => p.id === id) || null; }
+const baseName = f => (f || '').replace(/\/+$/, '').split('/').pop() || f || '';
+// A folder's stored conversations (full history from the library), newest first.
+function convsFor(folder) { if (!folder) return []; return (library || []).filter(r => r.cwd === folder || r.projectPath === folder).sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0)); }
+// Sessions cockpit is tracking as alive, for this project (by id) or folder.
+function liveFor(folder, pid) { return (state?.sessions || []).filter(s => s.kind !== 'probe' && s.alive && ((pid && s.projectId === pid) || (folder && s.cwd === folder))); }
+// Rows shown under a project/folder: live sessions first (openable), then recent past conversations.
+function activityRows(folder, pid) {
+  const live = liveFor(folder, pid), convs = convsFor(folder);
+  const liveIds = new Set(live.map(s => s.sessionId));
+  const past = convs.filter(c => !liveIds.has(c.sessionId)).slice(0, Math.max(0, 3 - live.length));
+  if (!live.length && !past.length) return '';
+  const liveHtml = live.slice(0, 4).map(s => `<button class="proj-live-row" data-pact="open" data-cs="${esc(s.cs)}" title="Open this live session"><span class="dot ${s.status === 'idle' ? 'starting' : 'busy'}"></span><span class="proj-live-nm">${esc(s.name || short(s.cwd || '') || s.cs)}</span><span class="muted">${esc(s.seat || '')}</span></button>`).join('');
+  const pastHtml = past.map(c => `<button class="proj-live-row" data-pact="hist-folder" data-folder="${esc(folder || '')}" title="See this conversation in Library"><span class="dot"></span><span class="proj-live-nm">${esc(c.title || c.sessionId.slice(0, 8))}</span><span class="muted">${esc(ago(c.lastAt))}</span></button>`).join('');
+  return `<div class="proj-live">${liveHtml}${pastHtml}</div>`;
+}
 // Options for a project <select>: "No project", every project, then the "+ New project…" sentinel.
 function projectOptionsHtml(selId, noneLabel = 'No project') {
   const valid = (projects || []).some(p => p.id === selId) ? selId : '';
@@ -920,7 +935,7 @@ function setProjFolderMode(mode) {
   if (mode === 'none') { wrap.style.display = 'none'; }
   else { wrap.style.display = ''; inp.placeholder = mode === 'new' ? '~/code/new-project' : '~/code/existing-project'; hint.textContent = mode === 'new' ? "I'll create this folder if it doesn't exist." : 'Point at a folder that already exists.'; }
 }
-function openProjectDialog({ project = null, onDone = null } = {}) {
+function openProjectDialog({ project = null, prefill = null, onDone = null } = {}) {
   projEditingId = project ? project.id : null; projDoneCb = onDone;
   projForm.reset();
   $('#projFolders').innerHTML = (recentFolders || []).map(r => `<option value="${esc(short(r.cwd))}">`).join('');
@@ -929,8 +944,10 @@ function openProjectDialog({ project = null, onDone = null } = {}) {
   if (project) {
     projForm.pname.value = project.name || ''; projForm.ptags.value = (project.tags || []).join(', ');
     if (project.folder) { setProjFolderMode('existing'); projForm.pfolder.value = short(project.folder); } else setProjFolderMode('none');
+  } else if (prefill) {
+    projForm.pname.value = prefill.name || ''; setProjFolderMode('existing'); if (prefill.folder) projForm.pfolder.value = short(prefill.folder);
   } else setProjFolderMode('existing');
-  projScrim.hidden = false; setTimeout(() => projForm.pname.focus(), 30);
+  projScrim.hidden = false; setTimeout(() => { projForm.pname.focus(); projForm.pname.select(); }, 30);
 }
 function openNewProject(cb) { openProjectDialog({ onDone: cb }); }
 function closeProjectDialog() { projScrim.hidden = true; projDoneCb = null; projEditingId = null; }
@@ -957,27 +974,47 @@ window.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !projScrim
 
 function vProjects() {
   const list = projects || [];
-  const head = `<div class="proj-head"><div><h2 class="proj-h">Projects</h2><div class="muted">${list.length} project${list.length === 1 ? '' : 's'} · tasks, sessions and history in one place</div></div><button class="btn primary" id="projNew">+ New project</button></div>`;
-  if (!list.length) return `${head}<div class="empty big proj-empty"><div class="proj-empty-ic">▦</div><div class="proj-empty-t">No projects yet</div><div class="muted" style="max-width:420px">Create a project to group its tasks, live sessions and history. A project can point at a folder, or stay folder-free so you pick one at launch.</div><button class="btn primary" id="projNew2">+ New project</button></div>`;
+  const head = `<div class="proj-head"><div><h2 class="proj-h">Projects</h2><div class="muted">Tasks, live sessions and history, in one place</div></div><button class="btn primary" id="projNew">+ New project</button></div>`;
   const cards = list.map(p => {
-    const sess = (state?.sessions || []).filter(s => s.kind !== 'probe' && (s.projectId === p.id || (p.folder && s.cwd === p.folder)));
-    const liveSess = sess.filter(s => s.alive);
+    const convs = convsFor(p.folder).length;
     const tags = (p.tags || []).map(t => `<span class="tag sm">${esc(t)}</span>`).join('');
     const done = Math.max(0, (p.totalTasks || 0) - (p.openTasks || 0));
-    const liveRow = liveSess.length ? `<div class="proj-live">${liveSess.slice(0, 4).map(s => `<button class="proj-live-row" data-pact="open" data-cs="${esc(s.cs)}" title="Open this session"><span class="dot ${s.status === 'idle' ? 'starting' : 'busy'}"></span><span class="proj-live-nm">${esc(s.name || short(s.cwd || '') || s.cs)}</span><span class="muted">${esc(s.seat || '')}</span></button>`).join('')}</div>` : '';
     return `<article class="proj-card" data-pid="${esc(p.id)}">
       <span class="proj-bar" style="background:${esc(p.color || 'var(--accent)')}"></span>
       <div class="proj-main">
         <div class="proj-name-row"><span class="proj-dot" style="background:${esc(p.color || 'var(--accent)')}"></span><span class="proj-name">${esc(p.name)}</span><span class="tb-sp"></span><button class="proj-ic-btn" data-pact="edit" data-pid="${esc(p.id)}" title="Edit project" aria-label="Edit project">✎</button><button class="proj-ic-btn danger" data-pact="delete" data-pid="${esc(p.id)}" title="Delete project" aria-label="Delete project">✕</button></div>
         <div class="proj-folder">${p.folder ? `<span class="mono">${esc(short(p.folder))}</span>` : '<span class="muted">No folder · chosen at launch</span>'}</div>
         ${tags ? `<div class="proj-tags">${tags}</div>` : ''}
-        <div class="proj-stats"><span><b>${p.openTasks || 0}</b> open</span><span><b>${done}</b> done</span><span class="${p.live ? 'proj-livecount' : ''}"><b>${p.live || 0}</b> live</span></div>
-        ${liveRow}
+        <div class="proj-stats"><span><b>${p.openTasks || 0}</b> open</span><span><b>${done}</b> done</span><span class="${p.live ? 'proj-livecount' : ''}"><b>${p.live || 0}</b> live</span>${p.folder ? `<span><b>${convs}</b> chat${convs === 1 ? '' : 's'}</span>` : ''}</div>
+        ${activityRows(p.folder, p.id)}
         <div class="proj-actions"><button class="btn sm" data-pact="tasks" data-pid="${esc(p.id)}">Tasks</button><button class="btn sm" data-pact="session" data-pid="${esc(p.id)}">New session</button><button class="btn sm ghost" data-pact="history" data-pid="${esc(p.id)}">History</button></div>
       </div>
     </article>`;
   }).join('');
-  return `${head}<div class="proj-grid">${cards}</div>`;
+
+  // Folders that already have conversation history but aren't a named project yet — promote any to a project.
+  const createdFolders = new Set(list.map(p => p.folder).filter(Boolean));
+  const autoFolders = (recentFolders || []).filter(r => r.cwd && !createdFolders.has(r.cwd)).slice(0, 24);
+  const folderCards = autoFolders.map(r => {
+    const convs = convsFor(r.cwd).length, live = liveFor(r.cwd, null).length;
+    return `<article class="proj-card proj-card-folder" data-folder="${esc(r.cwd)}">
+      <span class="proj-bar" style="background:var(--line-strong)"></span>
+      <div class="proj-main">
+        <div class="proj-name-row"><span class="proj-dot" style="background:var(--faint)"></span><span class="proj-name">${esc(baseName(r.cwd))}</span><span class="tb-sp"></span></div>
+        <div class="proj-folder"><span class="mono">${esc(short(r.cwd))}</span></div>
+        <div class="proj-stats"><span><b>${convs}</b> chat${convs === 1 ? '' : 's'}</span>${live ? `<span class="proj-livecount"><b>${live}</b> live</span>` : ''}</div>
+        ${activityRows(r.cwd, null)}
+        <div class="proj-actions"><button class="btn sm" data-pact="save-folder" data-folder="${esc(r.cwd)}">+ Save as project</button><button class="btn sm ghost" data-pact="hist-folder" data-folder="${esc(r.cwd)}">History</button><button class="btn sm ghost" data-pact="sess-folder" data-folder="${esc(r.cwd)}">New session</button></div>
+      </div>
+    </article>`;
+  }).join('');
+
+  if (!list.length && !autoFolders.length) return `${head}<div class="empty big proj-empty"><div class="proj-empty-ic">▦</div><div class="proj-empty-t">No projects yet</div><div class="muted" style="max-width:440px">Create a project to group its tasks, live sessions and history. A project can point at a folder, or stay folder-free so you pick one at launch.</div><button class="btn primary" id="projNew2">+ New project</button></div>`;
+
+  const projectsBlock = list.length ? `<div class="proj-grid">${cards}</div>`
+    : `<div class="proj-hint">No named projects yet. Save a folder below as a project, or <button class="linklike" id="projNew2">create one</button>.</div>`;
+  const foldersBlock = autoFolders.length ? `<div class="proj-subhead"><h3>Folders with history</h3><span class="muted">From your past sessions. Save any as a project to track its tasks here too.</span></div><div class="proj-grid">${folderCards}</div>` : '';
+  return `${head}${projectsBlock}${foldersBlock}`;
 }
 function wireProjects(el) {
   const openNew = () => openProjectDialog({ onDone: () => {} });
@@ -985,13 +1022,17 @@ function wireProjects(el) {
   const n2 = el.querySelector('#projNew2'); if (n2) n2.onclick = openNew;
   el.querySelectorAll('[data-pact]').forEach(b => b.onclick = async ev => {
     ev.stopPropagation();
-    const act = b.dataset.pact, pid = b.dataset.pid, cs = b.dataset.cs, p = selectedProject(pid);
+    const act = b.dataset.pact, pid = b.dataset.pid, cs = b.dataset.cs, folder = b.dataset.folder, p = selectedProject(pid);
     if (act === 'open' && cs) { try { await openSession(cs, 'browser'); } catch {} return; }
     if (act === 'tasks') { taskProjectFilter = pid; lastSig = null; location.hash = '#/tasks'; return; }
     if (act === 'session') { openSheet(); setTimeout(() => { const s = $('#nsProject'); if (s) { s.value = pid; s.dispatchEvent(new Event('change', { bubbles: true })); } }, 40); return; }
     if (act === 'history') { libFilter = p ? (p.folder ? short(p.folder) : p.name) : ''; lastSig = null; location.hash = '#/library'; return; }
     if (act === 'edit' && p) return openProjectDialog({ project: p, onDone: () => {} });
     if (act === 'delete' && p) { if (!confirm(`Delete project “${p.name}”? Its tasks and the folder on disk are kept — they just lose the project link.`)) return; try { await post(`/api/projects/${pid}/delete`); toast('Project deleted'); await load(); loadSlow(); } catch {} return; }
+    // Folder cards (history folders not yet a named project)
+    if (act === 'save-folder' && folder) return openProjectDialog({ prefill: { name: baseName(folder), folder }, onDone: () => {} });
+    if (act === 'hist-folder' && folder) { libFilter = short(folder); lastSig = null; location.hash = '#/library'; return; }
+    if (act === 'sess-folder' && folder) { openSheet(); setTimeout(() => { if (nsForm.cwd) nsForm.cwd.value = short(folder); }, 40); return; }
   });
 }
 
