@@ -243,7 +243,7 @@ table.cmds td { padding: 6px 10px 6px 0; border: 0; vertical-align: top; } table
 .pcount { flex: none; min-width: 22px; height: 20px; padding: 0 7px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .pcard.open .pcount { background: var(--accent); color: var(--accent-ink); }
 .pbody { border-top: 1px solid var(--line); }
-.view-enter .pcard.open .pbody { animation: folderOpen 300ms var(--ease-out) both; }
+.view-enter .pcard.open .pbody { animation: folderOpen 300ms var(--ease-out) backwards; }
 @keyframes folderOpen { from { opacity: 0; transform: translateY(-6px); } }
 .lrow { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
 .lrow:first-child { border-top: 0; }
@@ -345,7 +345,10 @@ h1 { letter-spacing: -0.021em; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(0.98); } }
 
 /* View entrance: gentle staggered rise — plays only when you navigate, never on refresh */
-.view-enter > * { animation: cardIn 360ms var(--ease-out) both; }
+/* backwards (not both): fill the hidden start during the stagger delay, but DON'T hold the
+   end state. "both" would leave every child with a lingering identity transform, which makes
+   it a containing block for position:fixed and throws off the task-card drag. */
+.view-enter > * { animation: cardIn 360ms var(--ease-out) backwards; }
 .view-enter > *:nth-child(1) { animation-delay: 0ms; }
 .view-enter > *:nth-child(2) { animation-delay: 45ms; }
 .view-enter > *:nth-child(3) { animation-delay: 90ms; }

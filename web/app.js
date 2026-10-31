@@ -826,6 +826,21 @@ function wireTasks(el) {
   // --- spring drag: 1:1 tracking, live reflow under the finger, velocity handoff on drop ---
   let drag = null;
   const phBefore = ph => { let n = ph.nextElementSibling; while (n && !n.classList.contains('tb-card')) n = n.nextElementSibling; return n || null; };
+  // position:fixed is viewport-relative only when no ancestor forms a containing block.
+  // A transform/filter/perspective/will-change/contain/backdrop-filter on any ancestor re-roots it
+  // to that ancestor, so our viewport coords would land offset. Measure that origin and subtract it.
+  const cbOrigin = node => {
+    for (let p = node.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (cs.transform !== 'none' || cs.perspective !== 'none' || (cs.filter && cs.filter !== 'none')
+        || (cs.backdropFilter && cs.backdropFilter !== 'none')
+        || (cs.willChange && /transform|filter|perspective/.test(cs.willChange))
+        || (cs.contain && /\b(paint|layout|strict|content)\b/.test(cs.contain))) {
+        const r = p.getBoundingClientRect(); return { x: r.left, y: r.top };
+      }
+    }
+    return { x: 0, y: 0 };
+  };
   const insertPh = (list, before) => {
     if (before) return list.insertBefore(drag.ph, before);
     const anchor = list.querySelector('.tb-add') || list.querySelector('.tb-empty');
@@ -855,10 +870,12 @@ function wireTasks(el) {
     nodes.forEach((n, i) => { const dx = first[i].left - last[i].left, dy = first[i].top - last[i].top; if (dx || dy) n._spring = tbSpring2D(n, dx, dy, { k: 520, c: 36 }, () => { n._spring = null; }); });
   };
   const begin = () => {
-    const card = drag.el, ph = document.createElement('div'); ph.className = 'tb-ph'; ph.style.height = drag.h + 'px'; drag.ph = ph; card.after(ph);
+    const card = drag.el, ph = document.createElement('div'); ph.className = 'tb-ph'; ph.style.height = drag.h + 'px'; drag.ph = ph;
+    drag.cb = cbOrigin(card);            // measure the fixed containing block while the card is still in flow
+    card.after(ph);
     if (!tbReduce()) { try { ph.animate([{ height: '0px', opacity: 0 }, { height: drag.h + 'px', opacity: 1 }], { duration: 200, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
     card.classList.add('tb-dragging');
-    Object.assign(card.style, { position: 'fixed', zIndex: '1000', width: drag.w + 'px', margin: '0', pointerEvents: 'none', left: (drag.sx - drag.offX) + 'px', top: (drag.sy - drag.offY) + 'px', transform: 'scale(1.03)' });
+    Object.assign(card.style, { position: 'fixed', zIndex: '1000', width: drag.w + 'px', margin: '0', pointerEvents: 'none', left: (drag.sx - drag.offX - drag.cb.x) + 'px', top: (drag.sy - drag.offY - drag.cb.y) + 'px', transform: 'scale(1.03)' });
     dirtyForms.add('tasks');            // hold the board still for the whole gesture
   };
   const onMove = e => {
@@ -866,7 +883,7 @@ function wireTasks(el) {
     if (!drag.moved) { if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return; drag.moved = true; begin(); drag.lastX = e.clientX; }
     const tt = Math.max(-4, Math.min(4, (e.clientX - (drag.lastX != null ? drag.lastX : e.clientX)) * 0.7)); drag.lastX = e.clientX;
     drag.tilt += (tt - drag.tilt) * 0.35;
-    drag.el.style.left = (e.clientX - drag.offX) + 'px'; drag.el.style.top = (e.clientY - drag.offY) + 'px'; drag.el.style.transform = `scale(1.03) rotate(${drag.tilt.toFixed(2)}deg)`;
+    drag.el.style.left = (e.clientX - drag.offX - drag.cb.x) + 'px'; drag.el.style.top = (e.clientY - drag.offY - drag.cb.y) + 'px'; drag.el.style.transform = `scale(1.03) rotate(${drag.tilt.toFixed(2)}deg)`;
     drag.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (drag.hist.length > 6) drag.hist.shift();
     const tgt = computeTarget(e.clientX, e.clientY);
     if (tgt && !(drag.ph.parentNode === tgt.list && phBefore(drag.ph) === tgt.before)) reflowTo(tgt.list, tgt.before);
