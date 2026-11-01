@@ -29,7 +29,7 @@ import { seatByName, makeProfileSeat, seedProfile, installHooks, uninstallHooks,
 import { sleep } from './paths.js';
 import { SessionManager } from './sessions.js';
 import { scanLibrary, findStored, recentProjects, searchTranscripts } from './library.js';
-import { setMark, getMark, allTags } from './marks.js';
+import { setMark, getMark, allTags, flushMarks } from './marks.js';
 import { readUsageDelta, lastCostState, EMPTY, add, totalTokens } from './tokens.js';
 
 const require = createRequire(import.meta.url);
@@ -99,7 +99,7 @@ async function probeSeat(seat) {
   const before = u0.fetchedAt || 0;
   const finish = (result) => { rec.running = false; rec.lastAt = Date.now(); rec.lastResult = result; addEvent('usage', `${seat.name}: ${result.ok ? `5-hour window at ${result.pct ?? '?'}% (refreshed via ${result.how})` : `usage check failed: ${result.reason}`}`); schedulePersist(); return rec; };
   if (!u0.loggedIn) return finish({ ok: false, reason: 'not logged in' });
-  fs.mkdirSync(PROBE_CWD, { recursive: true });
+  try { fs.mkdirSync(PROBE_CWD, { recursive: true }); } catch (e) { return finish({ ok: false, reason: `could not create the probe folder: ${e.message}` }); }
   const s = newSession({ kind: 'probe', cwd: PROBE_CWD, seat: seat.name, name: `usage check · ${seat.name}`, managed: true });
   let screen = '', trustAnswered = false;
   try { manager.spawn(s, seat, { cols: 120, rows: 40 }); } catch (e) { sessions.delete(s.cs); return finish({ ok: false, reason: `could not start claude: ${e.message}` }); }
@@ -217,7 +217,7 @@ for (const s of sessions.values()) {
   // login sessions and outside (hook-only) sessions just end; the latter re-register via
   // their hooks if they are in fact still running.
   if (s.alive || !['ended', 'lost'].includes(s.status)) s.status = (s.kind === 'claude' && s.managed) ? 'lost' : 'ended';
-  s.alive = false; s.pid = null; s.handoff = null; s.pendingHandoff = null;
+  s.alive = false; s.pid = null; s.handoff = null; s.pendingHandoff = null; s.continuation = null;
 }
 
 function log(level, msg) { console.log(`${new Date().toISOString()} ${level} ${msg}`); }
@@ -373,7 +373,7 @@ function doHandoff(s, toSeat, reason, { resend = false, trigger = 'policy' } = {
   addEvent('handoff', `${label(s)}: ${from} → ${toSeat.name} (${reason})`, { cs: s.cs });
   if (cfg.notifications) notify('Claude Cockpit', `${label(s)}: handed off ${from} → ${toSeat.name} (${reason})`);
   manager.broadcastInfo(s);
-  manager.gracefulExit(s);
+  manager.gracefulExit(s).catch(e => log('error', `${label(s)}: handoff exit failed: ${e.message}`));
   return true;
 }
 
@@ -934,7 +934,7 @@ function poll() {
     const silent = Date.now() - OUTSIDE_STALE_MS;
     for (const s of sessions.values()) if (s.kind === 'claude' && !s.managed && s.alive && s.lastActivity < silent) { s.alive = false; s.status = 'ended'; s.endedAt = s.endedAt || s.lastActivity; }
     const cutoff = Date.now() - 48 * 3600 * 1000;
-    for (const [k, s] of sessions) if (!s.alive && ['ended', 'lost', 'crashed'].includes(s.status) && (s.endedAt || s.lastActivity) < cutoff) { removeWorktree(s); manager.forget(k); sessions.delete(k); }
+    for (const [k, s] of sessions) if (!s.alive && ['ended', 'lost', 'crashed'].includes(s.status) && (s.endedAt || s.lastActivity) < cutoff) { removeWorktree(s); manager.forget(k); sessions.delete(k); seenIds.delete(k); }
     if (notified.size > 2000) notified.clear();
   } catch (e) { log('error', `poll: ${e.stack || e.message}`); }
   rearmPoll();
@@ -950,6 +950,7 @@ function shutdown() {
   for (const s of sessions.values()) { if (s.alive && s.kind === 'claude' && s.managed) { try { manager.killNow(s); } catch {} s.status = 'lost'; } else if (s.alive) s.status = 'lost'; }
   try { writeJson(STATE_FILE, { sessions: Object.fromEntries(sessions), events, jobs, tasks, projects }); } catch {}
   try { writeJson(LEDGER_FILE, ledger); } catch {}
+  try { flushMarks(); } catch {}   // write any debounced star/tag change before we exit
   try { if (fs.existsSync(PID_FILE) && Number(fs.readFileSync(PID_FILE, 'utf8')) === process.pid) fs.unlinkSync(PID_FILE); } catch {}
   server.close();
   setTimeout(() => process.exit(0), 150).unref();
@@ -957,6 +958,7 @@ function shutdown() {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 process.on('uncaughtException', e => log('error', `uncaught: ${e.stack || e.message}`));
+process.on('unhandledRejection', e => log('error', `unhandledRejection: ${(e && (e.stack || e.message)) || e}`));
 
 server.on('error', e => { log('error', `listen failed on ${PORT}: ${e.message}`); process.exit(1); });
 server.listen(PORT, '127.0.0.1', () => {

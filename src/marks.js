@@ -18,6 +18,9 @@ function load() {
 }
 let timer = null;
 function persist() { if (timer) return; timer = setTimeout(() => { timer = null; try { writeJson(FILE, store); } catch {} }, 300); }
+// Write any pending debounced change synchronously, so a star/tag set just before the daemon exits
+// is not lost (setTimeout does not survive process.exit). Called from the daemon's shutdown path.
+export function flushMarks() { if (timer) { clearTimeout(timer); timer = null; } if (store) { try { writeJson(FILE, store); } catch {} } }
 
 export function getMark(sessionId) { return load().sessions[sessionId] || null; }
 export function allMarks() { return load().sessions; }

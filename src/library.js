@@ -148,6 +148,7 @@ export function searchTranscripts(query, { limit = 40, timeoutMs = 15000 } = {})
     const files = [];
     const grep = spawn('grep', ['-rilF', '--include=*.jsonl', '--', q, root], { timeout: timeoutMs });
     let buf = '';
+    grep.stdout.setEncoding('utf8');   // decode once, so a multi-byte path split across chunk boundaries is not corrupted
     grep.stdout.on('data', d => { buf += d; });
     grep.on('close', async () => {
       for (const line of buf.split('\n')) { if (line.endsWith('.jsonl')) files.push(line); }

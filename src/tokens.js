@@ -22,7 +22,8 @@ export function tokensFromModelUsage(modelUsage) {
 // the new offset, and the latest cumulative cost Claude Code recorded (or null).
 export function readUsageDelta(file, offset = 0, seen = new Set()) {
   let st; try { st = fs.statSync(file); } catch { return null; }
-  if (st.size <= offset) return { delta: EMPTY(), offset: Math.min(offset, st.size), costTotal: null, byModel: {} };
+  if (st.size < offset) offset = 0;   // the transcript shrank (rewrite/compaction/replacement): re-scan from the start; `seen` still dedups anything already counted
+  if (st.size <= offset) return { delta: EMPTY(), offset, costTotal: null, byModel: {} };
   const fd = fs.openSync(file, 'r');
   try {
     const len = st.size - offset;

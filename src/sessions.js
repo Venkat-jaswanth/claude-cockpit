@@ -106,6 +106,9 @@ export class SessionManager {
       setTimeout(() => this.onRespawn?.(s), 250);
       return;
     }
+    // A handoff that advanced past 'exiting' (resume spawned) but never reached SessionStart, or one
+    // interrupted by a user stop, must not leave inProgress stuck true, that would lock restore/forget forever.
+    if (s.handoff?.inProgress) s.handoff = null;
     s.status = 'ended'; s.exitCode = code; s.endedAt = Date.now();
     if (rt) this.broadcast(rt, { t: 'exit', code });
     this.onExit?.(s, code);
@@ -116,10 +119,11 @@ export class SessionManager {
     const c = rt?.proc; if (!c) return;
     const exited = ms => new Promise(resolve => { let done = false; const t = setTimeout(() => { if (!done) { done = true; resolve(false); } }, ms); const d = c.onExit(() => { if (!done) { done = true; clearTimeout(t); resolve(true); } }); });
     // Ctrl-C clears a half-typed draft on an idle prompt, Ctrl-U clears the line, then /exit.
-    c.write('\x03'); await sleep(200);
-    c.write('\x15/exit\r');
+    const w = d => { try { c.write(d); } catch {} }; // the pty may already be dead; a write must not throw past us
+    w('\x03'); await sleep(200);
+    w('\x15/exit\r');
     if (await exited(4000)) return;
-    for (let i = 0; i < 3; i++) { c.write('\x03'); await sleep(350); }
+    for (let i = 0; i < 3; i++) { w('\x03'); await sleep(350); }
     if (await exited(3000)) return;
     try { c.kill('SIGTERM'); } catch {}
     if (await exited(2000)) return;
