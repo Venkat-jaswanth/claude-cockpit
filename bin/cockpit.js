@@ -84,11 +84,11 @@ async function cmdSeat(args) {
   const port = portOf(cfg);
   if (sub === 'list' || !sub) { printSeats(cfg); return; }
   if (sub === 'add') {
+    const noLogin = has(args, '--no-login');   // consume flags before the positional, so a flag can't be mistaken for the name
     const name = args.shift();
-    if (!name || !/^[a-z0-9_-]{1,24}$/i.test(name)) fail('usage: cockpit seat add <name>   (letters, digits, - and _ only)');
+    if (!name || !/^[a-z0-9][a-z0-9_-]{0,23}$/i.test(name)) fail('usage: cockpit seat add <name>   (start with a letter or digit; letters, digits, - and _ only)');
     if (seatByName(cfg, name)) fail(`seat "${name}" already exists`);
     if (!cfg.seats.some(s => s.kind === 'base')) fail('run `cockpit init` first so the shared ~/.claude directory is adopted');
-    const noLogin = has(args, '--no-login');
     const seat = makeProfileSeat(name);
     ensureHome();
     const linked = seedProfile(seat);
@@ -288,7 +288,7 @@ async function cmdHandoff(args) {
     else if (!live.length) fail('no live cockpit sessions');
     else fail(`several live sessions; name one: ${live.map(s => `${s.cs} (${s.name || s.cwd})`).join(', ')}`);
   }
-  const r = await request(port, 'POST', `/api/sessions/${target}/handoff`, { toSeat: to || null });
+  const r = await request(port, 'POST', `/api/sessions/${encodeURIComponent(target)}/handoff`, { toSeat: to || null });
   if (r.status !== 200) fail(r.body?.error || 'handoff refused');
   out(r.body.queued ? `Handoff to ${bold(r.body.to)} queued; it happens when the current turn ends.` : `Handing off to ${bold(r.body.to)} now.`);
 }

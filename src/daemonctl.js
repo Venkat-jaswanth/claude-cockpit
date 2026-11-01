@@ -27,12 +27,15 @@ export async function ensureDaemon(port) {
 }
 
 export async function stopDaemon(port) {
-  let stopped = false;
-  try { await request(port, 'POST', '/api/shutdown'); stopped = true; } catch {}
+  if (!(await health(port))) return true;               // already down; don't signal a possibly-stale pid
+  try { await request(port, 'POST', '/api/shutdown'); } catch {}
+  for (let i = 0; i < 20; i++) { await sleep(150); if (!(await health(port))) return true; }
+  // Still up: fall back to SIGTERM. Health was just up, so the recorded pid is almost certainly the
+  // live daemon (it writes PID_FILE with its own pid on listen), not a recycled stale one.
   const pid = Number(fs.existsSync(PID_FILE) ? fs.readFileSync(PID_FILE, 'utf8') : 0);
-  if (pid) { try { process.kill(pid, 'SIGTERM'); stopped = true; } catch {} }
-  for (let i = 0; i < 20; i++) { await sleep(150); if (!(await health(port))) return stopped; }
-  return stopped;
+  if (pid) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+  for (let i = 0; i < 20; i++) { await sleep(150); if (!(await health(port))) return true; }
+  return !(await health(port));                          // report the real final state, not "an action was attempted"
 }
 
 export function plistXml(port) {
@@ -40,6 +43,10 @@ export function plistXml(port) {
   const PATH = [claudeDir, path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].filter(Boolean).join(':');
   // XML-escape every interpolated value so a path containing & < or > cannot produce a malformed plist.
   const xe = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Carry the COCKPIT_* relocation overrides into the launchd daemon, so a CLI run with (say)
+  // COCKPIT_HOME set does not diverge from the daemon's state directory.
+  const extraEnv = ['COCKPIT_HOME', 'COCKPIT_BASE_CLAUDE_DIR', 'COCKPIT_BASE_CLAUDE_JSON', 'COCKPIT_CLAUDE_BIN']
+    .filter(k => process.env[k]).map(k => `    <key>${k}</key><string>${xe(process.env[k])}</string>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -54,7 +61,7 @@ export function plistXml(port) {
   <dict>
     <key>PATH</key><string>${xe(PATH)}</string>
     <key>COCKPIT_PORT</key><string>${xe(port)}</string>
-    <key>HOME</key><string>${xe(os.homedir())}</string>
+    <key>HOME</key><string>${xe(os.homedir())}</string>${extraEnv ? '\n' + extraEnv : ''}
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
