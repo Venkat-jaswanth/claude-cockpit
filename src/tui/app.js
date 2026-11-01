@@ -178,7 +178,7 @@ function App({ port, onDone, initial }) {
     const logged = (st?.seats || []).filter(s => !s.disabled && s.usage?.loggedIn);
     const seat = logged.slice().sort((a, b) => (a.usage.fiveHour?.pct ?? 999) - (b.usage.fiveHour?.pct ?? 999))[0];
     setBotBuf(''); setBotMsgs(m => [...m, { role: 'you', text: message }]);
-    if (!seat) { setBotMsgs(m => [...m, { role: 'bot', text: 'No logged-in account to run on — add or log in a seat first.' }]); return; }
+    if (!seat) { setBotMsgs(m => [...m, { role: 'bot', text: 'No logged-in account to run on. Add or log in a seat first.'}]); return; }
     setBotPending(true);
     runBot(seat, message, botConvId).then(res => { setBotPending(false); setBotMsgs(m => [...m, { role: 'bot', text: res.ok ? res.text : '⚠ ' + (res.error || 'failed') }]); if (res.ok && res.id) setBotConvId(res.id); });
   }
@@ -454,7 +454,7 @@ function App({ port, onDone, initial }) {
 
     ${view === 'bot' ? html`<${Box} flexDirection="column">
       <${Box} marginBottom=${1}><${Text} bold>Assistant</${Text}><${Text} color="gray">${`   texting cockpit${bestName ? ' · on ' + bestName : ''}`}</${Text}></${Box}>
-      ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit — commands, accounts, hand-offs, usage, setup.</${Text}>`
+      ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit: commands, accounts, hand-offs, usage, setup.</${Text}>`
         : botMsgs.slice(-10).map((mm, i) => html`<${Box} key=${i} flexDirection="column" marginBottom=${1}>
             <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '◆ cockpit'}</${Text}>
             <${Text} wrap="wrap">${mm.text}</${Text}>

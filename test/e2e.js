@@ -316,6 +316,18 @@ try {
   let ranPrompt = false; const tp2 = Date.now();
   while (Date.now() - tp2 < 6000) { const s2 = (await st()).sessions.find(x => x.name === 'scheduled test'); if (s2 && s2.turns >= 1) { ranPrompt = true; break; } await sleep(300); }
   check(ranPrompt, 'the scheduled initial task ran automatically');
+
+  console.log('new session carries its opening prompt (dashboard field-name mapping)');
+  // Regression: the dashboard's New Session sheet sends the opening prompt as `prompt`, while
+  // startClaudeSession reads `initialPrompt`. /api/sessions must map it or the prompt is dropped
+  // (you would have to retype it). turns>=1 only happens if the prompt actually auto-ran.
+  const nsr = (await api('POST', '/api/sessions', { cwd: proj, seat: 'a', name: 'prompt map test', prompt: 'work' })).body;
+  check(nsr.cs, 'new session created');
+  let nsRan = false; const tNs = Date.now();
+  while (Date.now() - tNs < 8000) { const s3 = (await st()).sessions.find(x => x.cs === nsr.cs); if (s3 && s3.turns >= 1) { nsRan = true; break; } await sleep(300); }
+  check(nsRan, 'the opening prompt sent as `prompt` auto-ran (mapped to initialPrompt)');
+  await api('POST', `/api/sessions/${encodeURIComponent(nsr.cs)}/stop`);
+
   const sch2 = (await api('POST', '/api/schedule', { cwd: proj, name: 'cancel me', at: Date.now() + 600000 })).body;
   await api('POST', `/api/schedule/${sch2.job.id}/cancel`);
   check(!(await st()).jobs.some(j => j.id === sch2.job.id && j.status === 'queued'), 'a queued run can be cancelled');

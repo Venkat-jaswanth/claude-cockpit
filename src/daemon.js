@@ -682,7 +682,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST') {
       const body = (await readBody(req)) || {};
       if ((m = p.match(/^\/hook\/([A-Za-z]+)$/))) { handleHook(m[1], url.searchParams, body); return json(res, { ok: true }); }
-      if (p === '/api/sessions') return json(res, startClaudeSession(body));
+      // The dashboard's New Session sheet sends the opening prompt as `prompt`; startClaudeSession
+      // reads `initialPrompt`. Map it here so a prompt typed (or picked from a saved command) is
+      // actually sent, not silently dropped, on the immediate "Open in Terminal" / "View" path.
+      if (p === '/api/sessions') return json(res, startClaudeSession({ ...body, initialPrompt: body.initialPrompt ?? body.prompt }));
       if (p === '/api/schedule') { if (!body.cwd || !fs.existsSync(path.resolve(body.cwd))) return json(res, { error: 'folder does not exist' }, 400); return json(res, { ok: true, job: addJob({ ...body, cwd: path.resolve(body.cwd) }) }); }
       if ((m = p.match(/^\/api\/schedule\/([^/]+)\/cancel$/))) { const job = jobs.find(j => j.id === m[1]); if (!job) return json(res, { error: 'no such job' }, 404); if (job.status === 'queued') { job.status = 'cancelled'; addEvent('schedule', `cancelled "${job.name || ''}"`); schedulePersist(); } return json(res, { ok: true }); }
       if (p === '/api/tasks') {

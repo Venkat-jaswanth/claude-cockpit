@@ -183,7 +183,7 @@ function attnItems() {
   // go: a session finished its turn and is waiting on you (the key "needs input" signal)
   const idle = state.sessions.filter(s => s.alive && s.managed && s.kind === 'claude' && s.status === 'idle' && !s.pendingHandoff).sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
   for (const s of idle)
-    push('go', '✓', `${esc(s.name || s.cs)} is ready for you`, `Finished its turn on ${esc(s.seat || '?')} · ${ago(s.lastActivity)}`, `<button class="btn sm primary" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}" title="Finished with it? Stop now — you can still resume it later">Stop</button>`, s.cs);
+    push('go', '✓', `${esc(s.name || s.cs)} is ready for you`, `Finished its turn on ${esc(s.seat || '?')} · ${ago(s.lastActivity)}`, `<button class="btn sm primary" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button><button class="btn sm danger" data-act="stop" data-cs="${esc(s.cs)}" title="Finished with it? Stop now, you can still resume it later">Stop</button>`, s.cs);
   // info: a queued handoff waiting for the turn to end
   for (const s of state.sessions.filter(x => x.pendingHandoff))
     push('', '→', `${esc(s.name || s.cs)}: handoff to ${esc(s.pendingHandoff.to)} queued`, 'Will move when the current turn ends.', '', s.cs);
@@ -218,7 +218,7 @@ function ovQuickLaunch() {
       <span class="badge">→ ${esc(best ? best.name : 'best seat')}</span></button>`).join('');
   const add = `<button class="card qcard qadd" data-ql-add><span class="qi">+</span><span class="qt">New command</span><span class="tiny muted">save a prompt you reuse</span></button>`;
   return `<div class="section"><div class="card-head"><h2>Quick launch</h2><a class="tiny" data-ql-add href="#/settings">Manage</a></div>
-    <div class="grid auto ql-grid">${cards}${add}</div>${mine.length ? '' : '<div class="tiny muted" style="margin-top:8px">Examples — add your own and these make way.</div>'}</div>`;
+    <div class="grid auto ql-grid">${cards}${add}</div>${mine.length ? '' : '<div class="tiny muted" style="margin-top:8px">Examples. Add your own and these make way.</div>'}</div>`;
 }
 // One merged per-account section: a usage ring, readiness, reset countdown and runway — no
 // separate Capacity / Window-resets / Runway cards saying overlapping things.
@@ -239,7 +239,7 @@ function ovAccounts() {
   }).join('');
   const weekly = seats.filter(s => (s.usage.weekly || []).length).map(s => { const w = s.usage.weekly.find(x => x.active) || s.usage.weekly[0]; return `${esc(s.name)} ${w.pct ?? '–'}%`; });
   return `<div class="section"><div class="card-head"><h2>Accounts</h2><span class="tiny muted">${ready} of ${seats.length} ready · usage, resets and runway</span></div>
-    <div class="grid auto acct-grid">${cards}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:10px">Weekly — ${weekly.join(' · ')}</div>` : ''}</div>`;
+    <div class="grid auto acct-grid">${cards}</div>${weekly.length ? `<div class="tiny muted" style="margin-top:10px">Weekly · ${weekly.join(' · ')}</div>` : ''}</div>`;
 }
 function ovToday() {
   const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
@@ -279,7 +279,7 @@ function vOverview() {
         <div class="sc-foot"><span class="sc-meta">${s.turns || 0} turns · ${ago(s.lastActivity)}</span><div class="actions"><button class="btn sm" data-act="term" data-cs="${esc(s.cs)}">Open</button><button class="btn sm" data-act="handoff" data-cs="${esc(s.cs)}" title="Move to the seat with the most headroom">Hand off</button></div></div>
       </div>`).join('')}</div>`
     : live.length
-      ? `<div class="card flat empty">Every live session is waiting on you — see <b>Needs you</b> above.</div>`
+      ? `<div class="card flat empty">Every live session is waiting on you. See <b>Needs you</b> above.</div>`
       : `<div class="card flat empty big">Nothing running yet. Press <b>New session</b> to start one, or resume a conversation from <a href="#/library">Projects</a>.</div>`;
   const outsideNote = outside.length ? `<div class="tiny muted" style="margin-top:10px">${outside.length} Claude session${outside.length === 1 ? '' : 's'} running outside cockpit (started with plain <code>claude</code>). <a href="#/sessions">Show</a></div>` : '';
   const budget = usage?.budgetMonthlyUSD || 0, monthCost = usage?.month?.total?.cost || 0;
@@ -504,7 +504,7 @@ function usageLimits() {
   }).join('');
   return `<div class="card section"><div class="card-head"><h2>Account limits${probing ? ' <span class="badge accent">checking…</span>' : ''}</h2><button class="btn sm primary" id="btnCheckAllUsage" ${probing ? 'disabled' : ''}>${probing ? 'Checking…' : 'Check all'}</button></div>
     <div class="ulim-list">${rows}</div>
-    <div class="tiny muted" style="margin-top:10px">The 5-hour window is Claude Code's rolling limit. “Check” opens Claude briefly on a seat to refresh the reading — no prompt is sent.</div></div>`;
+    <div class="tiny muted" style="margin-top:10px">The 5-hour window is Claude Code's rolling limit. “Check” opens Claude briefly on a seat to refresh the reading, no prompt is sent.</div></div>`;
 }
 function vUsage() {
   if (!usage || !usage.today || !usage.week || !usage.month) return '<div class="empty big">Loading…</div>';
@@ -712,7 +712,7 @@ function tbCard(t) {
     <div class="tb-detail" data-detail="${t.id}" hidden>
       <label class="tb-row"><span>Folder</span><input class="inp sm" data-field="cwd" data-id="${t.id}" list="tbProjects" value="${esc(t.cwd || '')}" placeholder="/Users/you/project"></label>
       <label class="tb-row"><span>Seat</span><select class="sel sm" data-field="seat" data-id="${t.id}">${tbSeatOptions(t.seat)}</select></label>
-      <textarea class="inp sm tb-ta" data-field="desc" data-id="${t.id}" placeholder="Description — becomes the opening prompt when auto-start is on">${esc(t.desc || '')}</textarea>
+      <textarea class="inp sm tb-ta" data-field="desc" data-id="${t.id}" placeholder="Description. Becomes the opening prompt when auto-start is on">${esc(t.desc || '')}</textarea>
       <label class="tb-check"><input type="checkbox" data-field="autoKick" data-id="${t.id}" ${t.autoKick !== false ? 'checked' : ''}> Auto-start from description</label>
       <label class="tb-check"><input type="checkbox" data-field="worktree" data-id="${t.id}" ${t.worktree ? 'checked' : ''}> Run in an isolated worktree</label>
       <div class="tb-detail-actions">
@@ -782,11 +782,24 @@ function wireTasks(el) {
     if (open && !tbReduce()) { try { const h = d.scrollHeight; d.animate([{ height: '0px', opacity: 0 }, { height: h + 'px', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)' }); } catch {} }
   };
 
+  // The description textarea saves on blur, but Launch sits outside the detail panel and fires its
+  // own request, so a quick type-then-Launch used to race and the server would read an empty desc
+  // and start Claude with no opening prompt. Flush the prompt fields and wait before launching.
+  const flushTaskFields = async id => {
+    const card = el.querySelector(`.tb-card[data-id="${id}"]`); if (!card) return;
+    const body = {};
+    const ta = card.querySelector(`textarea[data-field="desc"][data-id="${id}"]`);
+    const ak = card.querySelector(`input[data-field="autoKick"][data-id="${id}"]`);
+    if (ta) body.desc = ta.value;
+    if (ak) body.autoKick = ak.checked;
+    try { await post(`/api/tasks/${id}`, body); } catch {}
+  };
+
   el.querySelectorAll('[data-tact]').forEach(b => b.onclick = async ev => {
     ev.stopPropagation();
     const act = b.dataset.tact, id = b.dataset.id, cs = b.dataset.cs;
     if (act === 'expand') return toggleDetail(id);
-    if (act === 'launch') { tbPulse(el.querySelector(`.tb-card[data-id="${id}"]`)); return tbMutate(async () => { await post(`/api/tasks/${id}/launch`); toast('Launching — Claude is starting on it'); }); }
+    if (act === 'launch') { tbPulse(el.querySelector(`.tb-card[data-id="${id}"]`)); return tbMutate(async () => { await flushTaskFields(id); await post(`/api/tasks/${id}/launch`); toast('Launching. Claude is starting on it'); }); }
     if (act === 'done') return tbMutate(() => post(`/api/tasks/${id}`, { status: 'done' }));
     if (act === 'reopen') return tbMutate(() => post(`/api/tasks/${id}`, { status: 'ready' }));
     if (act === 'delete') {
@@ -1135,7 +1148,7 @@ function wireProjects(el) {
     if (act === 'session') { openSheet(); setTimeout(() => { const s = $('#nsProject'); if (s) { s.value = pid; s.dispatchEvent(new Event('change', { bubbles: true })); } }, 40); return; }
     if (act === 'reveal') return openProjDrawer({ pid: pid || null, folder: folder || null });
     if (act === 'edit' && p) return openProjectDialog({ project: p, onDone: () => {} });
-    if (act === 'delete' && p) { if (!confirm(`Delete project “${p.name}”? Its tasks and the folder on disk are kept — they just lose the project link.`)) return; try { await post(`/api/projects/${pid}/delete`); toast('Project deleted'); await load(); loadSlow(); } catch {} return; }
+    if (act === 'delete' && p) { if (!confirm(`Delete project “${p.name}”? Its tasks and the folder on disk are kept, they just lose the project link.`)) return; try { await post(`/api/projects/${pid}/delete`); toast('Project deleted'); await load(); loadSlow(); } catch {} return; }
     // Folder cards (history folders not yet a named project)
     if (act === 'save-folder' && folder) return openProjectDialog({ prefill: { name: baseName(folder), folder }, onDone: () => {} });
     if (act === 'sess-folder' && folder) { openSheet(); setTimeout(() => { if (nsForm.cwd) nsForm.cwd.value = short(folder); }, 40); return; }
@@ -1342,7 +1355,7 @@ function maybeNotify() {
     if (on && notifySeeded && prev && prev !== s.status) {
       try {
         if (s.status === 'idle' && prev === 'busy') new Notification(`${s.name || s.cs} is ready for you`, { body: `Finished its turn on ${s.seat || '?'}`, tag: 'ck-' + s.cs });
-        else if (s.status === 'crashed' && prev !== 'crashed') new Notification(`${s.name || s.cs} crashed`, { body: `On ${s.seat || '?'} — resume it from cockpit`, tag: 'ck-' + s.cs });
+        else if (s.status === 'crashed' && prev !== 'crashed') new Notification(`${s.name || s.cs} crashed`, { body: `On ${s.seat || '?'}. Resume it from cockpit`, tag: 'ck-' + s.cs });
       } catch {}
     }
     prevStatus[s.cs] = s.status;
@@ -1535,7 +1548,7 @@ const wsCtl = {
         out += `<div class="rail-item${inGrid ? ' in' : ''}${this.focus === s.cs ? ' focused' : ''}" data-rail="${esc(s.cs)}" title="${inGrid ? 'Focus in workspace' : 'Add to workspace'}">
           <span class="rail-dot" style="background:${seatColor(s.seat)}"></span>
           <span class="rail-name">${esc(s.name || s.cs)}</span>
-          ${ready ? '<span class="rail-ready" title="finished its turn — needs you">●</span>' : ''}
+          ${ready ? '<span class="rail-ready" title="finished its turn, needs you">●</span>' : ''}
           <span class="rail-acts">
             <span class="rail-act" role="button" data-rail-act="rename" data-cs="${esc(s.cs)}" title="Rename">✎</span>
             <span class="rail-act" role="button" data-rail-act="handoff" data-cs="${esc(s.cs)}" title="Hand off to the freshest seat">⇄</span>
@@ -1632,7 +1645,7 @@ const wsCtl = {
           <button class="iconbtn" data-wp="menu" title="Remove or stop">✕</button>
           <div class="wp-menu" hidden>
             <button data-wp="hide">Hide from workspace<small>keeps the session running</small></button>
-            <button class="danger" data-wp="stop">Stop session<small>ends it — resume later from Sessions</small></button>
+            <button class="danger" data-wp="stop">Stop session<small>ends it. Resume later from Sessions</small></button>
           </div>
         </span>
       </div>
