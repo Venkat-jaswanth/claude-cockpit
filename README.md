@@ -4,11 +4,11 @@
 
 <br>
 
-[![Latest release](https://img.shields.io/github/v/release/Venkat-jaswanth/claude-cockpit?style=flat-square&labelColor=1b1b1f&color=3f3f46&label=release)](https://github.com/Venkat-jaswanth/claude-cockpit/releases)
+[![Latest release](https://img.shields.io/github/v/release/Venkat-jaswanth/claude-cockpit?style=flat-square&labelColor=0d0e12&color=c2a24d&label=release)](https://github.com/Venkat-jaswanth/claude-cockpit/releases)
 &nbsp;
-[![License: MIT](https://img.shields.io/badge/license-MIT-3f3f46?style=flat-square&labelColor=1b1b1f)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-c2a24d?style=flat-square&labelColor=0d0e12)](LICENSE)
 &nbsp;
-[![Node 20+](https://img.shields.io/badge/node-%E2%89%A520-3f3f46?style=flat-square&labelColor=1b1b1f)](package.json)
+[![Node 20+](https://img.shields.io/badge/node-%E2%89%A520-c2a24d?style=flat-square&labelColor=0d0e12)](package.json)
 
 <br>
 
@@ -90,7 +90,7 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 | **Token &amp; cost accounting** | Tokens booked per turn to the seat that ran them: today, 7 days, all-time, a 14-day chart, per-seat spend, top sessions, CSV export. |
 | **Monthly budget** | Set a monthly spend cap and watch the budget bar fill. |
 | **Status line** | Show the active seat's remaining window right in Claude Code's status line. |
-| **Light &amp; dark** | A calm graphite theme, both ways. |
+| **Light &amp; dark** | An obsidian and gold theme, both ways: warm ivory by day, near-black by night. |
 
 ## Screenshots
 

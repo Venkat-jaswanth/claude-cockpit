@@ -661,6 +661,11 @@ const server = http.createServer(async (req, res) => {
       if (p === '/') return file(res, path.join(WEB_DIR, 'index.html'), 'text/html');
       if (p === '/app.js') return file(res, path.join(WEB_DIR, 'app.js'), 'text/javascript');
       if (p === '/style.css') return file(res, path.join(WEB_DIR, 'style.css'), 'text/css');
+      if (p === '/fonts.css') return file(res, path.join(WEB_DIR, 'fonts.css'), 'text/css');
+      if ((m = p.match(/^\/fonts\/([A-Za-z0-9._-]+\.woff2)$/))) {   // self-hosted fonts; the strict name guards against traversal
+        try { const data = fs.readFileSync(path.join(WEB_DIR, 'fonts', m[1])); res.writeHead(200, { 'content-type': 'font/woff2', 'cache-control': 'public, max-age=31536000, immutable' }); return res.end(data); }
+        catch { return json(res, { error: 'not found' }, 404); }
+      }
       if (p === '/terminal.js') return file(res, path.join(WEB_DIR, 'terminal.js'), 'text/javascript');
       if (VENDOR[p]) return file(res, path.join(PKG_ROOT, 'node_modules', VENDOR[p][0]), VENDOR[p][1]);
       if ((m = p.match(/^\/s\/([^/]+)$/))) return file(res, path.join(WEB_DIR, 'terminal.html'), 'text/html');

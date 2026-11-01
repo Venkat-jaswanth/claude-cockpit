@@ -15,9 +15,10 @@ import { claudeEnv } from '../seats.js';
 import { CLAUDE_BIN } from '../paths.js';
 
 const html = htm.bind(React.createElement);
-const ACCENT = '#5eead4';          // teal — cockpit's terminal accent (refined in the brand pass)
-const ACCENT_DIM = '#2f6f69';
-const SEAT_COLORS = ['#5eead4', '#f0abfc', '#fca5a5', '#fcd34d', '#7dd3fc', '#c4b5fd', '#86efac', '#fdba74'];  // one stable colour per seat
+const ACCENT = '#e6c878';          // warm gold — cockpit's terminal accent (Obsidian & Gold)
+const ACCENT_DIM = '#7a6327';      // deep brass, for borders and faint rails
+const GOLD_SHADES = ['#f5e2a8', '#f0d58a', '#e6c878', '#dcbd6e', '#c9a24b', '#a9842f'];  // metallic sheen, top→bottom, for the wordmark
+const SEAT_COLORS = ['#e6c878', '#f0b74f', '#f0a8b0', '#67d6a6', '#7fb7f0', '#c4b5fd', '#f5e2a8', '#fdba74'];  // one stable, warm-leaning colour per seat
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];  // braille spinner for "thinking"
 const evColor = t => /error|exhausted|crash/.test(t) ? 'red' : /limit|handoff|threshold|recommend|queued|lost/.test(t) ? 'yellow' : /start|resumed|usage|arm|restore/.test(t) ? 'green' : 'gray';
 
@@ -96,7 +97,7 @@ const HERO = [
 
 function Logo({ label }) {
   return html`<${Box} marginBottom=${1}>
-    <${Text} color=${ACCENT} bold>${'❯ '}</${Text}><${Text} bold>${'cockpit'}</${Text}>
+    <${Text} color=${ACCENT} bold>${'◆ '}</${Text}><${Text} bold>${'cockpit'}</${Text}>
     <${Text} color="gray">${'   ' + (label || 'terminal control for many Claude Code seats')}</${Text}>
   </${Box}>`;
 }
@@ -323,7 +324,7 @@ function App({ port, onDone, initial }) {
   const statusMax = Math.max(3, rows - (heroHome ? 18 : 12));
 
   if (!st) return html`<${Box} padding=${1} flexDirection="column">
-    <${Text} color=${connErr ? 'red' : ACCENT}>${connErr ? '⚠ can’t reach the cockpit daemon' : '❯ connecting to the cockpit daemon…'}</${Text}>
+    <${Text} color=${connErr ? 'red' : ACCENT}>${connErr ? '⚠ can’t reach the cockpit daemon' : '◆ connecting to the cockpit daemon…'}</${Text}>
     ${connErr ? html`<${Text} color="gray">Start it in a terminal:  cockpit daemon start</${Text}>` : null}
   </${Box}>`;
 
@@ -342,7 +343,7 @@ function App({ port, onDone, initial }) {
   return html`<${Box} flexDirection="column" padding=${1}>
     ${heroHome
       ? html`<${Box} flexDirection="column" marginBottom=${1}>
-          ${HERO.map((ln, i) => html`<${Text} key=${i} color=${ACCENT} bold>${ln}</${Text}>`)}
+          ${HERO.map((ln, i) => html`<${Text} key=${i} color=${GOLD_SHADES[i] || ACCENT} bold>${ln}</${Text}>`)}
         </${Box}>`
       : html`<${Logo} label=${viewLabel} />`}
 
@@ -455,7 +456,7 @@ function App({ port, onDone, initial }) {
       <${Box} marginBottom=${1}><${Text} bold>Assistant</${Text}><${Text} color="gray">${`   texting cockpit${bestName ? ' · on ' + bestName : ''}`}</${Text}></${Box}>
       ${botMsgs.length === 0 ? html`<${Text} color="gray">Ask me anything about cockpit — commands, accounts, hand-offs, usage, setup.</${Text}>`
         : botMsgs.slice(-10).map((mm, i) => html`<${Box} key=${i} flexDirection="column" marginBottom=${1}>
-            <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '❯ cockpit'}</${Text}>
+            <${Text} color=${mm.role === 'you' ? ACCENT : undefined} bold>${mm.role === 'you' ? 'you' : '◆ cockpit'}</${Text}>
             <${Text} wrap="wrap">${mm.text}</${Text}>
           </${Box}>`)}
       ${botPending ? html`<${Box} marginTop=${1}><${Text} color=${ACCENT}>${SPIN[tick % SPIN.length] + ' '}</${Text}><${Text} color="gray">cockpit is thinking${'.'.repeat(tick % 4)}</${Text}></${Box}>` : null}

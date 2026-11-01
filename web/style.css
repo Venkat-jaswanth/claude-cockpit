@@ -1,24 +1,44 @@
+/* ============================================================================
+   OBSIDIAN & GOLD  ·  Claude Cockpit
+   Light = warm ivory + brass.  Dark = near-black obsidian + warm gold (the hero).
+   Gold is the accent; jewel tones carry status. Serif figures (Fraunces),
+   monospace instrument labels (JetBrains Mono), system sans for body.
+   ============================================================================ */
 :root {
-  --bg: #f5f5f7; --panel: #ffffff; --panel-2: #f2f2f5; --line: rgba(0, 0, 0, .08); --line-strong: rgba(0, 0, 0, .14);
-  --text: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6;
-  --accent: #1d1d1f; --accent-soft: #3a3a3e; --accent-ink: #ffffff; --ok: #34c759; --warn: #ff9f0a; --bad: #ff3b30;
-  --sidebar: rgba(245, 245, 247, .82); --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  /* light — warm ivory + brass */
+  --bg: #efe9dc; --panel: #fbf8f1; --panel-2: #ece4d4; --line: rgba(58, 46, 20, .12); --line-strong: rgba(58, 46, 20, .20);
+  --text: #221c10; --muted: #6b614d; --faint: #9c907a;
+  --accent: #8a6a22; --accent-soft: #a9842f; --accent-ink: #fdf8ec; --ok: #2f8f66; --warn: #b5780f; --bad: #c2382c;
+  --gold: #8a6a22; --gold-bright: #b9933a; --gold-deep: #6a521c; --hair-gold: rgba(138, 106, 34, .26); --glow-gold: rgba(160, 124, 45, .16);
+  --jewel-green: #2f8f66; --jewel-amber: #b5780f; --jewel-sap: #3d6ea8;
+  --sidebar: rgba(247, 242, 232, .82); --surface-term: #1a1712;
+  --shadow: 0 1px 2px rgba(60,40,10,.05), 0 8px 24px -8px rgba(60,40,10,.14);
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
   --r: 12px; --r-s: 8px;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #101012; --panel: #1b1b1e; --panel-2: #26262a; --line: rgba(255, 255, 255, .09); --line-strong: rgba(255, 255, 255, .16);
-    --text: #f5f5f7; --muted: #98989d; --faint: #6e6e73;
-    --accent: #f5f5f7; --accent-soft: #d4d4d8; --accent-ink: #15151a; --ok: #30d158; --warn: #ffd60a; --bad: #ff453a;
-    --sidebar: rgba(16, 16, 18, .78); --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    --bg: #0a0b0d; --panel: #0f1115; --panel-2: #191c23; --line: rgba(255, 255, 255, .07); --line-strong: rgba(255, 255, 255, .15);
+    --text: #f4f0e6; --muted: #b4afa2; --faint: #7c786d;
+    --accent: #e6c878; --accent-soft: #f0d58a; --accent-ink: #1a1508; --ok: #67d6a6; --warn: #f0b74f; --bad: #ff6b6b;
+    --gold: #e6c878; --gold-bright: #f5e2a8; --gold-deep: #9c7f33; --hair-gold: rgba(230, 200, 120, .18); --glow-gold: rgba(230, 200, 120, .14);
+    --jewel-green: #67d6a6; --jewel-amber: #f0b74f; --jewel-sap: #7fb7f0;
+    --sidebar: rgba(14, 16, 20, .78); --surface-term: #0c0d10;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 30px -10px rgba(0,0,0,.6);
+    color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-    --bg: #101012; --panel: #1b1b1e; --panel-2: #26262a; --line: rgba(255, 255, 255, .09); --line-strong: rgba(255, 255, 255, .16);
-    --text: #f5f5f7; --muted: #98989d; --faint: #6e6e73;
-    --accent: #f5f5f7; --accent-soft: #d4d4d8; --accent-ink: #15151a; --ok: #30d158; --warn: #ffd60a; --bad: #ff453a;
-    --sidebar: rgba(16, 16, 18, .78); --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    --bg: #0a0b0d; --panel: #0f1115; --panel-2: #191c23; --line: rgba(255, 255, 255, .07); --line-strong: rgba(255, 255, 255, .15);
+    --text: #f4f0e6; --muted: #b4afa2; --faint: #7c786d;
+    --accent: #e6c878; --accent-soft: #f0d58a; --accent-ink: #1a1508; --ok: #67d6a6; --warn: #f0b74f; --bad: #ff6b6b;
+    --gold: #e6c878; --gold-bright: #f5e2a8; --gold-deep: #9c7f33; --hair-gold: rgba(230, 200, 120, .18); --glow-gold: rgba(230, 200, 120, .14);
+    --jewel-green: #67d6a6; --jewel-amber: #f0b74f; --jewel-sap: #7fb7f0;
+    --sidebar: rgba(14, 16, 20, .78); --surface-term: #0c0d10;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 30px -10px rgba(0,0,0,.6);
+    color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -776,3 +796,83 @@ body.ws-reordering, body.ws-reordering * { cursor: grabbing !important; user-sel
 .field-hint { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
 #projFolderMode { width: 100%; }
 #projFolderMode button { flex: 1; text-align: center; }
+
+/* ============================================================================
+   OBSIDIAN & GOLD — premium finish (loaded last; layers over the geometry above)
+   ============================================================================ */
+:root { --shadow-lift: 0 2px 6px rgba(60,40,10,.07), 0 18px 42px -14px rgba(80,55,15,.22); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --shadow-lift: 0 2px 8px rgba(0,0,0,.6), 0 26px 60px -18px rgba(0,0,0,.85); } }
+:root[data-theme="dark"] { --shadow-lift: 0 2px 8px rgba(0,0,0,.6), 0 26px 60px -18px rgba(0,0,0,.85); }
+
+/* Ambient depth: a warm gold aura on dark, a whisper of warmth on light. Fixed so it stays put. */
+body { background-repeat: no-repeat; background-attachment: fixed; }
+:root body { background-image: radial-gradient(900px 480px at 85% -12%, rgba(160,124,45,.05), transparent 60%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body { background-image:
+  radial-gradient(1100px 540px at 84% -12%, rgba(230,200,120,.07), transparent 60%),
+  radial-gradient(880px 600px at 6% 110%, rgba(22,26,36,.6), transparent 55%); } }
+:root[data-theme="dark"] body { background-image:
+  radial-gradient(1100px 540px at 84% -12%, rgba(230,200,120,.07), transparent 60%),
+  radial-gradient(880px 600px at 6% 110%, rgba(22,26,36,.6), transparent 55%); }
+
+/* Typography — serif figures, monospace instrument labels */
+h1 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.02em; }
+.brand-name { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: -0.005em; }
+.kpi .val, .stat .s-val { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
+h3, .kpi .lbl, .stat .s-lbl, .tb-colname, .usage-top h2, .drawer-sec-h, .rail-head,
+kbd, .nav .count, .tb-tag, .tb-cost, .sc-meta, .cmdk-hint, .cmdk-chip kbd, .proj-stats, .burn { font-family: var(--mono); }
+/* Dark: hero figures struck in gold */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) :is(.stat .s-val, .kpi .val) {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold) 92%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; } }
+:root[data-theme="dark"] :is(.stat .s-val, .kpi .val) {
+  background: linear-gradient(180deg, var(--gold-bright), var(--gold) 92%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+
+/* Brand mark — an obsidian tile holding the gold aperture */
+.brand-mark { width: 34px; height: 34px; flex: none; border-radius: 10px; display: grid; place-items: center;
+  /* always obsidian, both themes, so the gold gem keeps its contrast */
+  background: radial-gradient(120% 120% at 30% 18%, rgba(245,226,168,.22), transparent 60%), linear-gradient(145deg, #1b1d24, #0d0e12);
+  border: 1px solid rgba(230,200,120,.34);
+  box-shadow: inset 0 1px 0 rgba(245,226,168,.26), inset 0 0 16px -7px rgba(230,200,120,.4), var(--shadow); }
+.brand-mark svg { width: 21px; height: 21px; display: block; }
+.brand-sub { font-family: var(--mono); font-size: 10px; letter-spacing: .1em; color: var(--faint); }
+
+/* Sidebar nav — refined gold-rail active state (no full fill) */
+.sidebar { background-image: linear-gradient(180deg, color-mix(in srgb, var(--gold) 5%, transparent) 0%, transparent 160px); border-right-color: var(--line); }
+.nav a.active { background: color-mix(in srgb, var(--gold) 12%, transparent); color: var(--text);
+  box-shadow: inset 2px 0 0 var(--gold), inset 0 0 0 1px var(--hair-gold); }
+.nav a.active .ico { color: var(--gold); opacity: 1; }
+
+/* Buttons — gold primary with a real metallic edge */
+.btn.primary { color: var(--accent-ink); background: linear-gradient(180deg, var(--accent-soft) 0%, var(--accent) 100%); border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(0,0,0,.18), 0 6px 18px -9px var(--glow-gold); }
+.btn.primary:hover { filter: brightness(1.05); background: linear-gradient(180deg, var(--accent-soft) 0%, var(--accent) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 10px 26px -9px var(--glow-gold); }
+
+/* Cards — a faint top sheen; hero surfaces gain a gold hairline + inner glow */
+.card { background-image: linear-gradient(180deg, color-mix(in srgb, var(--text) 2%, transparent), transparent 44%); }
+.ov-status, .card.gilt { border-color: var(--hair-gold); box-shadow: var(--shadow), inset 0 0 0 1px color-mix(in srgb, var(--gold) 5%, transparent), inset 0 0 44px -16px var(--glow-gold); }
+.attn-item.go { box-shadow: var(--shadow), inset 0 0 0 1px color-mix(in srgb, var(--ok) 18%, transparent); }
+
+/* Rings — obsidian face with a gold hairline and a soft halo */
+.ring { box-shadow: inset 0 0 0 1px var(--hair-gold), 0 0 16px -8px var(--glow-gold); }
+.acct .ring::after, .ring::after { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 7%, transparent); }
+
+/* Charts & sparklines — gold bars, hot bar glows */
+.bcol .b { background: linear-gradient(180deg, var(--gold), var(--gold-deep)); opacity: .5; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent); }
+.bcol .b.today, .bcol:hover .b { opacity: 1; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent), 0 0 14px -3px var(--glow-gold); }
+
+/* Terminal panes follow the theme's own dark surface */
+.wp { background: var(--surface-term); }
+.wp-ended { background: color-mix(in srgb, var(--surface-term) 82%, transparent); }
+
+/* Scrollbars — a thin brass line */
+* { scrollbar-width: thin; scrollbar-color: var(--gold-deep) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--gold-deep); border: 3px solid transparent; background-clip: padding-box; border-radius: 20px; }
+*::-webkit-scrollbar-track { background: transparent; }
+::selection { background: color-mix(in srgb, var(--gold) 28%, transparent); }
+
+/* Keep the gold figures legible when motion/contrast is dialed down — no change needed, but
+   never let the gradient-clip hide text if the browser lacks background-clip support. */
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  :is(.stat .s-val, .kpi .val) { color: var(--gold) !important; -webkit-text-fill-color: var(--gold) !important; background: none !important; }
+}
