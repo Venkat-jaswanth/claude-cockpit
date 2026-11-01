@@ -591,11 +591,13 @@ function exportCsv() {
   const a = document.createElement('a'); a.href = url; a.download = `cockpit-usage-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   toast('CSV downloaded');
 }
+let deepSeq = 0;
 async function deepSearch(q) {
-  if (!q || q.length < 2) { deepResults = null; deepQuery = ''; render(); return; }
-  deepQuery = q; toast('Searching inside conversations…');
-  try { const r = await fetch('/api/search?q=' + encodeURIComponent(q)); deepResults = (await r.json()).results || []; }
-  catch { deepResults = []; }
+  if (!q || q.length < 2) { deepResults = null; deepQuery = ''; deepSeq++; render(); return; }
+  deepQuery = q; const seq = ++deepSeq; toast('Searching inside conversations…');
+  // Ignore an out-of-order response so a slow earlier search can't overwrite a newer one's results.
+  try { const r = await fetch('/api/search?q=' + encodeURIComponent(q)); const results = (await r.json()).results || []; if (seq !== deepSeq) return; deepResults = results; }
+  catch { if (seq !== deepSeq) return; deepResults = []; }
   render();
 }
 async function bulkAction(kind) {
@@ -817,6 +819,10 @@ function wireTasks(el) {
 
   el.querySelectorAll('[data-field]').forEach(f => {
     f.onchange = async () => { const body = {}; body[f.dataset.field] = f.type === 'checkbox' ? f.checked : f.value; try { await post(`/api/tasks/${f.dataset.id}`, body); } catch {} };
+    // Freeze poll-driven rebuilds while a detail field is focused, so a 3s refresh can't wipe a
+    // half-typed description or folder. Clear on blur unless the Add composer still holds unsaved text.
+    f.addEventListener('focus', () => dirtyForms.add('tasks'));
+    f.addEventListener('blur', () => { const t = el.querySelector('#tbAdd [name=ttitle]'); if (!t || !t.value.trim()) dirtyForms.delete('tasks'); });
   });
 
   const add = el.querySelector('#tbAdd');
@@ -932,7 +938,7 @@ function wireTasks(el) {
     window.removeEventListener('pointermove', onMove);
     if (!drag) return;
     if (!drag.moved) { const id = drag.t, fd = drag.frozeDirty; drag = null; if (fd) dirtyForms.delete('tasks'); return toggleDetail(id); }
-    const card = drag.el, ph = drag.ph, h = drag.hist, id = card.dataset.id; let vx = 0, vy = 0;
+    const card = drag.el, ph = drag.ph, h = drag.hist, id = card.dataset.id, fd = drag.frozeDirty; let vx = 0, vy = 0;
     if (h.length >= 2) { const a = h[h.length - 1], b = h[0], dt = Math.max(16, a.t - b.t); vx = (a.x - b.x) / dt * 1000; vy = (a.y - b.y) / dt * 1000; }
     card.style.transform = ''; const relRect = card.getBoundingClientRect();
     card.classList.remove('tb-dragging'); card.removeAttribute('style');
@@ -942,7 +948,7 @@ function wireTasks(el) {
     const order = (po != null && no != null) ? (po + no) / 2 : (po != null ? po + 1 : (no != null ? no - 1 : Date.now()));
     card.dataset.status = status; updateCounts();
     const slot = card.getBoundingClientRect(), dx = relRect.left - slot.left, dy = relRect.top - slot.top;
-    const finalize = async () => { try { await post(`/api/tasks/${id}`, { status, order }); } catch {} dirtyForms.delete('tasks'); load(); };
+    const finalize = async () => { try { await post(`/api/tasks/${id}`, { status, order }); } catch {} if (fd) dirtyForms.delete('tasks'); load(); };
     if (tbReduce()) finalize(); else tbSpring2D(card, dx, dy, { vx, vy, k: 440, c: 34 }, finalize);
     drag = null;
   };
@@ -1271,7 +1277,11 @@ function wire(el) {
   el.querySelectorAll('[data-qltext]').forEach(b => b.onclick = () => { openSheet(); setTimeout(() => { if (nsForm.prompt) { nsForm.prompt.value = b.dataset.qltext; nsForm.prompt.focus(); } }, 60); });
   el.querySelectorAll('[data-ql-del]').forEach(b => b.onclick = e => { e.stopPropagation(); const l = cmds(); l.splice(+b.dataset.qlDel, 1); saveCmds(l); render(); });
   el.querySelectorAll('[data-ql-add]').forEach(b => b.onclick = e => { e.preventDefault(); setView('settings'); setTimeout(() => { const i = $('#cmdName'); if (i) { i.scrollIntoView({ block: 'center' }); i.focus(); } }, 90); });
-  const cmdAdd = el.querySelector('#cmdAdd'); if (cmdAdd) cmdAdd.onclick = () => { const n = el.querySelector('#cmdName').value.trim(), t = el.querySelector('#cmdText').value.trim(); if (!n || !t) return; const l = cmds(); l.push({ name: n, text: t }); saveCmds(l); render(); };
+  const cmdName = el.querySelector('#cmdName'), cmdText = el.querySelector('#cmdText'), cmdAdd = el.querySelector('#cmdAdd');
+  // These inputs sit outside <form id="settings">, so freeze the view while they hold text, else a
+  // 3s poll rebuild wipes what you type (the hazard the settings form is already protected from).
+  [cmdName, cmdText].forEach(i => { if (!i) return; i.addEventListener('focus', () => dirtyForms.add('settings')); i.addEventListener('blur', () => { if (!cmdName?.value.trim() && !cmdText?.value.trim()) dirtyForms.delete('settings'); }); });
+  if (cmdAdd) cmdAdd.onclick = () => { const n = (cmdName?.value || '').trim(), t = (cmdText?.value || '').trim(); if (!n || !t) return; const l = cmds(); l.push({ name: n, text: t }); saveCmds(l); if (cmdName) cmdName.value = ''; if (cmdText) cmdText.value = ''; dirtyForms.delete('settings'); render(); };
   const settings = el.querySelector('#settings');
   if (settings) {
     settings.addEventListener('input', () => dirtyForms.add('settings'));
