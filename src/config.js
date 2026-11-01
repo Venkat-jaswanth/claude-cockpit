@@ -7,11 +7,12 @@ export const DEFAULTS = {
   port: 7447,
   pollSec: 30,
   handoff: {
-    // off | ask | auto. Ships as 'off': cockpit never moves a session on its own until
-    // you opt in. 'ask' only notifies; 'auto' moves between seats past the threshold (and
-    // always on a hard-limit hit, unless mode is 'off'). Read the "Account sharing" note in
-    // the README before enabling handoff across accounts that aren't your own.
-    mode: 'off',
+    // off | ask | auto. Ships as 'auto': when a seat runs low, cockpit moves the running
+    // session to a fresher seat between turns. 'ask' only notifies; 'off' never moves a
+    // session on its own. 'auto' moves past the threshold (and always on a hard-limit hit).
+    // Read the "Account sharing" note in the README: only run handoff across accounts you
+    // are all entitled to use. Set to 'off' with: cockpit config set handoff.mode off
+    mode: 'auto',
     thresholdPct: 85,    // recommend/auto-hand-off once the seat's 5-hour window is this full
     minGainPct: 20,      // only move if the target seat has at least this much more headroom
     hardPct: 97,         // treat as "limit reached"

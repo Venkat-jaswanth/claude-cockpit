@@ -81,7 +81,7 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 | **Usage without tokens** | Reads each account's cached 5-hour and weekly rate-limit status straight from disk. No OAuth tokens, no Keychain, no network calls. |
 | **Burn-rate &amp; ETA** | Per-seat burn rate (%/hour) and time-to-full, so you know which seat to reach for next. |
 | **Arm the 5-hour window** | Kick off a seat's window at roughly zero cost with a cheap model, one seat or every seat at once. |
-| **Opt-in handoff** | When a seat runs low, move a running session to a fresher one between turns and carry on. Ships **off by default**. |
+| **Handoff** | When a seat runs low, move a running session to a fresher one between turns and carry on. **On by default** (`handoff.mode: auto`); set it to `ask` or `off` any time. |
 
 ### Spend &amp; polish
 
@@ -211,9 +211,12 @@ accounts whose owners have each signed in on their own seat.
 
 **Anthropic's consumer terms prohibit sharing an account with anyone else, and Team seats
 are per named user.** Running *your* session on *someone else's* seat is account sharing even
-when they agree, and it can get accounts suspended. For that reason **automatic handoff ships
-off (`handoff.mode: off`)**, so cockpit never moves a session on its own until you turn it on.
-Enabling handoff across accounts that aren't yours is a choice you make, with that risk.
+when they agree, and it can get accounts suspended. Handoff is meant for moving between
+**accounts you are all entitled to use**. It is **on by default (`handoff.mode: auto`)**: when a
+seat runs low, cockpit moves the running session to a fresher seat on its own. If that is not
+what you want, set `cockpit config set handoff.mode ask` to be prompted first, or
+`handoff.mode off` to disable it. Enabling handoff across accounts that aren't yours is a choice
+you make, with that risk.
 
 <details>
 <summary><b>How a handoff works</b></summary>

@@ -27,5 +27,6 @@ it privately as above.
 ## Account sharing
 
 Rotating one person's session across other people's accounts violates Anthropic's terms and
-is **not** a supported use (automatic handoff ships off by default). That's a policy matter,
-not a security vulnerability; reports about it will be closed with a pointer to the README.
+is **not** a supported use. Handoff is for moving between accounts you are all entitled to
+use; it can be set to `ask` or `off` (`cockpit config set handoff.mode off`). That's a policy
+matter, not a security vulnerability; reports about it will be closed with a pointer to the README.
