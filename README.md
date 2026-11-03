@@ -100,11 +100,11 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 
 **Projects.** Your work grouped into projects: open tasks, live sessions and history in one place. Folders you have already used show up automatically, one click from becoming a project.
 
-![Projects hub](docs/projects-light.png)
+![Projects hub](docs/projects-dark.png)
 
 **Plan the work.** A drag-and-drop task board. Link a task to a project, then launch it as a live session with one click.
 
-![Task board](docs/tasks-light.png)
+![Task board](docs/tasks-dark.png)
 
 <table>
 <tr>
@@ -119,7 +119,7 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 
 **Library.** Every conversation, grouped by folder. Star, tag, filter by project, resume on any seat.
 
-![Library](docs/library-light.png)
+![Library](docs/library-dark.png)
 
 </td>
 </tr>
@@ -131,14 +131,14 @@ Not just an account switcher. This is where your sessions live, run, and get fou
 
 **Usage.** Budget, a 14-day trend, per-seat spend and top sessions.
 
-![Usage](docs/usage-light.png)
+![Usage](docs/usage-dark.png)
 
 </td>
 <td width="50%" valign="top">
 
 **Seats.** One isolated login per account, each with its own windows.
 
-![Seats](docs/seats-light.png)
+![Seats](docs/seats-dark.png)
 
 </td>
 </tr>
