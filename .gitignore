@@ -33,3 +33,7 @@ to-do.md
 
 # local launch drafts (LinkedIn / Medium), not for the public repo
 launch/
+
+# Local design scratch (redesign explorations, hallmark logs), not for the public repo
+.hallmark/
+design-mockups/
