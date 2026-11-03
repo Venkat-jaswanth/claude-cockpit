@@ -1,6 +1,6 @@
 {
   "name": "claude-cockpit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "A local control room for Claude Code: run sessions in the background, attach from your browser or Terminal, search and organize your history, and manage several accounts with live usage, all from one dashboard.",
   "type": "module",
   "bin": {
