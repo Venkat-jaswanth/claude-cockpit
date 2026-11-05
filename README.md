@@ -25,10 +25,6 @@
 <br>
 <br>
 
-<img alt="Dragging a task across the board into a live session" src="docs/demo.gif" width="100%">
-
-<sub>Plan a task, drag it across the board, launch it as a live session.</sub>
-
 </div>
 
 ## Why
